@@ -112,7 +112,7 @@
   // ---------------------------------------------------------------- an image or post: every model it used
   async function loadRecipe(url) {
     const p = s.page;
-    Object.assign(s, { recipe: null, error: null, saved: false, imageUrl: url });
+    Object.assign(s, { recipe: null, error: null, saved: false, sentPrompto: false, imageUrl: url });
     render();
     const r = await send({ type: "recipe", url });
     if (s.page !== p) return;
@@ -180,17 +180,18 @@
     if (!items.length) body.append(h("div", { class: "dim" }, "No models are named in its generation data."));
     body.append(...items.map(recipeRow));
     body.append(h("div", { class: "acts" },
-      missing.length ? h("button", { class: "dl", onclick: () => missing.forEach(getItem) }, `Get ${missing.length === 1 ? "the missing model" : `all ${missing.length} missing`}`) : null,
+      missing.length ? h("button", { class: "dl", onclick: () => missing.forEach((it) => getItem(it)) }, `Get ${missing.length === 1 ? "the missing model" : `all ${missing.length} missing`}`) : null,
       h("button", { class: "dl ghost", disabled: s.saved, onclick: async () => {
         const x = await send({ type: "saveRecipe", recipe: rec, thumb: r.thumb || null });
         if (x && x.error) s.error = x.error; else s.saved = true;
         render();
       } }, s.saved ? "✓ Saved in Recipes" : "Save as recipe"),
-      s.prompto ? h("button", { class: "dl ghost", onclick: async (ev) => {
+      s.prompto ? h("button", { class: "dl ghost", disabled: s.sentPrompto, onclick: async () => {
         const { comfy, ...plain } = rec;
         const x = await send({ type: "prompto", recipe: plain, thumb: r.thumb || null });
-        if (x && x.error) { s.error = x.error; render(); } else ev.target.textContent = "✓ Sent to Prompto";
-      } }, "Send to Prompto") : null,
+        if (x && x.error) s.error = x.error; else s.sentPrompto = true;
+        render();
+      } }, s.sentPrompto ? "✓ Sent to Prompto" : "Send to Prompto") : null,
       s.page.kind === "post" ? h("button", { class: "dl ghost", onclick: () => loadRecipe(s.page.url) }, "Other images") : null));
     if (s.error) body.append(h("div", { class: "err" }, s.error));
     if (!s.conn.ok) body.append(h("div", { class: "dim" }, "Downloads wait in the extension and start when ComfyUI is running."));
@@ -353,6 +354,10 @@
   }
 
   function render() {
+    if (root.activeElement && root.activeElement.tagName === "SELECT") { // don't close a list someone has open
+      root.activeElement.addEventListener("blur", () => render(), { once: true });
+      return;
+    }
     wrap.replaceChildren();
     if (!s.page) return void host.remove();
     if (!host.isConnected) document.documentElement.append(host);
@@ -502,12 +507,13 @@
     if (!s.conn.ok || asking) return;
     const cards = [...document.querySelectorAll('a[href*="/models/"]')].filter((a) => a.querySelector("img, video") && !a.closest("#model-librarian-ext"));
     const idOf = (a) => { const m = a.getAttribute("href").match(/\/models\/(\d+)/); return m ? m[1] : null; };
-    const fresh = [...new Set(cards.map(idOf).filter((id) => id && !known.has(id)))];
+    const now = Date.now();
+    const fresh = [...new Set(cards.map(idOf).filter((id) => id && !(known.get(id)?.at > now - 120000)))]; // asked again after 2 min
     if (fresh.length) {
       asking = true;
       const r = await send({ type: "badges", modelIds: fresh.slice(0, 100) });
       asking = false;
-      for (const id of fresh.slice(0, 100)) known.set(id, (r && r[id]) || { status: "missing" });
+      if (r && !r.error) for (const id of fresh.slice(0, 100)) known.set(id, { ...((r[id]) || { status: "missing" }), at: now });
       if (s.open && s.page && s.page.kind === "collection") render();
     }
     for (const a of cards) {

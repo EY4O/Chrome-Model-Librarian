@@ -130,3 +130,27 @@ test("paid / early access: scheduled for when it's free, then sent by itself", (
   queue = Q2.schedule(queue, "7:70", "2999-01-01T00:00:00Z");
   assert.equal(queue[0].status, "scheduled");
 });
+
+test("never stuck downloading: interrupted, lost, and followed on the ComfyUI it went to", () => {
+  let { queue } = Q.enqueue([], item(1, 1));
+  queue = Q.applySend(queue, "1:1", { status: "started", job: { id: "a" } }, 1, "http://127.0.0.1:8188");
+  assert.equal(queue[0].base, "http://127.0.0.1:8188", "remembers which ComfyUI has the job");
+  // ComfyUI restarted mid-download: Model Librarian marks it interrupted
+  let q2 = Q.applyJobs(queue, [{ id: "a", status: "interrupted", done: 10, total: 100 }]);
+  assert.equal(q2[0].status, "error");
+  assert.match(q2[0].error, /Interrupted/);
+  assert.equal(Q.retry(q2, "1:1")[0].status, "queued", "and Retry works on it");
+  // retried or cleared in Model Librarian itself: no longer listed by the server it was asked
+  q2 = queue;
+  for (let i = 0; i < Q.LOST_AFTER - 1; i++) q2 = Q.applyJobs(q2, [], 1, ["a"]);
+  assert.equal(q2[0].status, "downloading", "a missed poll or two is tolerated");
+  q2 = Q.applyJobs(q2, [], 1, ["a"]);
+  assert.equal(q2[0].status, "error", "then it stops being followed");
+  assert.deepEqual(Q.active(q2), []);
+  // a server that wasn't asked (unreachable) changes nothing
+  assert.deepEqual(Q.applyJobs(queue, [], 1, ["other"]), queue);
+  // listed again: the miss count resets
+  q2 = Q.applyJobs(queue, [], 1, ["a"]);
+  q2 = Q.applyJobs(q2, [{ id: "a", status: "downloading", done: 5, total: 100 }], 1, ["a"]);
+  assert.equal(q2[0].misses, 0);
+});

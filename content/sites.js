@@ -106,7 +106,8 @@
     if (q.status === "downloading") return h("span", { class: "state" }, q.total ? `${Math.floor((100 * q.done) / q.total)}%` : "Starting…");
     if (q.status === "queued") return h("span", { class: "state q" }, s.conn.ok ? "Sending…" : "Queued");
     if (q.status === "done" || q.status === "have") return h("span", { class: "state ok", title: q.dest || "" }, q.status === "done" ? "✓ Downloaded" : "✓ In your library");
-    if (q.status === "error") return h("button", { class: "dl ghost", title: q.error || "", onclick: () => send({ type: "retry", key: q.key }) }, "Retry");
+    if (q.status === "error" || q.status === "cancelled") return h("button", { class: "dl ghost", title: q.error || "Cancelled", onclick: () => send({ type: "retry", key: q.key }) }, "Retry");
+    if (q.status === "scheduled") return h("span", { class: "state q", title: q.why || "" }, `⏰ ${new Date(q.notBefore).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`);
     return fallback;
   };
 
@@ -149,7 +150,11 @@
     for (const [sha] of shasOnPage()) {
       if (s.files[sha]) continue;
       s.files[sha] = { loading: true };
-      send({ type: "civarchive", sha256: sha }).then((r) => { s.files[sha] = r || { error: "No answer" }; render(); });
+      send({ type: "civarchive", sha256: sha }).then((r) => {
+        s.files[sha] = r || { error: "No answer" };
+        if (!r || r.error) setTimeout(() => { if (s.files[sha] === r || !r) delete s.files[sha]; }, 15000); // asked again later
+        render();
+      });
     }
   }
 
@@ -184,6 +189,10 @@
 
   // ---------------------------------------------------------------- the panel
   function render() {
+    if (root.activeElement && root.activeElement.tagName === "SELECT") { // don't close a list someone has open
+      root.activeElement.addEventListener("blur", () => render(), { once: true });
+      return;
+    }
     wrap.replaceChildren();
     if (!s.page) return void host.remove();
     if (!host.isConnected) document.documentElement.append(host);
@@ -214,7 +223,11 @@
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== "local") return;
     if (ch.queue) s.queue = ch.queue.newValue || [];
-    if (ch.conn) s.conn = ch.conn.newValue || { ok: false };
+    if (ch.conn) {
+      const was = s.conn.ok;
+      s.conn = ch.conn.newValue || { ok: false };
+      if (!was && s.conn.ok && s.open && s.page) { s.files = {}; if (s.page.site === "hf") planHf(); else lookupFiles(); } // connected now: ask again
+    }
     render();
   });
   sync();

@@ -56,7 +56,8 @@ function item(x, conn) {
       h("div", { class: "title", style: "flex:1" }, x.pageUrl ? h("a", { href: x.pageUrl, target: "_blank", title: x.title }, x.title) : x.title),
       ["error", "cancelled"].includes(x.status) ? h("button", { class: "small", onclick: () => send({ type: "retry", key: x.key }).then(refresh) }, "Retry") : null,
       x.status === "scheduled" ? h("button", { class: "small ghost", title: "If you've bought it on CivitAI", onclick: () => send({ type: "retry", key: x.key }).then(refresh) }, "Try now") : null,
-      x.status !== "downloading" ? h("button", { class: "link", title: "Remove from the list", onclick: () => send({ type: "remove", key: x.key }).then(refresh) }, "×") : null),
+      h("button", { class: "link", title: x.status === "downloading" ? "Stop following it here (Model Librarian keeps downloading)" : "Remove from the list",
+        onclick: () => send({ type: "remove", key: x.key }).then(refresh) }, "×")),
     h("div", { class: "file dim", title: x.file }, [x.file, fmtSize(x.size)].filter(Boolean).join(" · ")),
     x.status === "downloading" ? h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })) : null,
     (STATUS[x.status] || STATUS.error)(x, conn),
@@ -88,8 +89,8 @@ async function drawLater() {
     h("button", { class: "link", title: "Remove", onclick: () => send({ type: "saveForLater", remove: true, entry: x }).then(drawLater) }, "×"))));
 }
 
-async function refresh() { render(await send({ type: "state" })); drawLater(); }
-async function check() { render(await send({ type: "pump" })); }
+async function refresh() { const st = await send({ type: "state" }); if (st && st.conn) render(st); drawLater(); }
+async function check() { const st = await send({ type: "pump" }); if (st && st.conn) render(st); else refresh(); }
 
 $("clear").onclick = () => send({ type: "clear" }).then(refresh);
 $("save").onclick = async () => {

@@ -18,8 +18,10 @@ async function load() {
 }
 
 async function saveSettings(patch) {
-  const { settings } = await load();
-  await chrome.storage.local.set({ settings: { ...settings, ...patch } });
+  return locked(async () => {
+    const { settings } = await load();
+    await chrome.storage.local.set({ settings: { ...settings, ...patch } });
+  });
 }
 
 // A desktop notification when a download finishes or fails (Settings: on by default).
@@ -27,9 +29,18 @@ async function notifyChanges(before, after) {
   const { settings } = await load();
   if (!settings.notify || !chrome.notifications) return;
   const was = new Map(before.map((x) => [x.key, x.status]));
-  for (const x of after) {
+  const changed = after.filter((x) => {
     const prev = was.get(x.key);
-    if (prev === x.status || !["done", "error"].includes(x.status) || !["downloading", "queued"].includes(prev)) continue;
+    return prev !== x.status && ["done", "error"].includes(x.status) && ["downloading", "queued"].includes(prev);
+  });
+  if (changed.length > 3) { // a collection's worth at once: one notice, not dozens
+    const ok = changed.filter((x) => x.status === "done").length;
+    chrome.notifications.create(`ml-batch-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png",
+      title: ok === changed.length ? `${ok} downloads finished` : `${ok} downloaded, ${changed.length - ok} failed`,
+      message: "Details are in the toolbar popup.", priority: ok === changed.length ? 0 : 1 });
+    return;
+  }
+  for (const x of changed) {
     chrome.notifications.create(`ml-${x.key}-${Date.now()}`, {
       type: "basic", iconUrl: "icons/icon128.png",
       title: x.status === "done" ? "Downloaded" : "Download failed",
@@ -40,10 +51,16 @@ ${x.dest}` : ""}`,
   }
 }
 
-// Every change to the queue goes through here, one at a time (clicks, the pump and the popup race otherwise).
+// Every change to stored state goes through here, one at a time (clicks, the pump and the popup race otherwise).
 let chain = Promise.resolve();
+function locked(fn) {
+  const run = chain.then(fn);
+  chain = run.catch(() => {});
+  return run;
+}
+
 function withQueue(fn) {
-  const run = chain.then(async () => {
+  return locked(async () => {
     const { queue } = await chrome.storage.local.get({ queue: [] });
     const out = await fn(queue);
     if (out && out.queue) {
@@ -52,8 +69,6 @@ function withQueue(fn) {
     }
     return out;
   });
-  chain = run.catch(() => {});
-  return run;
 }
 
 function updateBadge(queue) {
@@ -94,7 +109,8 @@ let again = null;
 // runs right after it, and the caller waits for that one.
 function pump() {
   if (pumping) {
-    rerun = rerun || pumping.then(() => { rerun = null; return pump(); });
+    const again2 = () => { rerun = null; return pump(); };
+    rerun = rerun || pumping.then(again2, again2); // also after a pass that failed
     return rerun;
   }
   pumping = (async () => {
@@ -108,8 +124,9 @@ async function pumpOnce() {
   await withQueue((q) => ({ queue: Q.wake(q) })); // paid / early access ones whose day has come
   const { settings, queue } = await load();
   const conn = await comfy.detect(settings.base);
-  conn.checked = Date.now();
-  await chrome.storage.local.set({ conn });
+  const { conn: prev } = await chrome.storage.local.get({ conn: {} });
+  const { checked, ...prevSame } = prev || {};
+  if (JSON.stringify(prevSame) !== JSON.stringify(conn)) await chrome.storage.local.set({ conn: { ...conn, checked: Date.now() } });
   if (!conn.ok) return;
   for (const item of Q.pending(queue)) {
     let res;
@@ -126,15 +143,19 @@ async function pumpOnce() {
       if (e.status === 0) return; // ComfyUI went away: the item stays queued
       res = { error: e.message, transient: e.status === 502 || e.status === 409 };
     }
-    await withQueue(async (q) => { const next = Q.applySend(q, item.key, res); await notifyChanges(q, next); return { queue: next }; });
+    await withQueue(async (q) => { const next = Q.applySend(q, item.key, res, Date.now(), conn.base); await notifyChanges(q, next); return { queue: next }; });
   }
   const { queue: now } = await chrome.storage.local.get({ queue: [] });
-  const ids = Q.active(now).map((x) => x.jobId);
-  if (ids.length) {
+  const byBase = new Map();
+  for (const x of Q.active(now)) {
+    const b = x.base || conn.base;
+    byBase.set(b, [...(byBase.get(b) || []), x.jobId]);
+  }
+  for (const [b, ids] of byBase) { // each download is followed on the ComfyUI it went to
     try {
-      const { jobs } = await comfy.api(conn.base, `/ext/jobs?ids=${ids.join(",")}`);
-      await withQueue(async (q) => { const next = Q.applyJobs(q, jobs); await notifyChanges(q, next); return { queue: next }; });
-    } catch {}
+      const { jobs } = await comfy.api(b, `/ext/jobs?ids=${ids.join(",")}`);
+      await withQueue(async (q) => { const next = Q.applyJobs(q, jobs, Date.now(), ids); await notifyChanges(q, next); return { queue: next }; });
+    } catch {} // that ComfyUI isn't answering right now: try again next time
   }
   // while something is downloading, follow it closely (the 30 s alarm is the fallback)
   const { queue: after } = await chrome.storage.local.get({ queue: [] });
@@ -251,12 +272,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         pump();
         return { results: out };
       }
-      case "saveForLater": {
+      case "saveForLater": return locked(async () => {
         const { saved = [] } = await chrome.storage.local.get({ saved: [] });
         const rest = saved.filter((x) => x.modelId !== msg.entry.modelId);
         await chrome.storage.local.set({ saved: msg.remove ? rest : [{ ...msg.entry, added: Date.now() }, ...rest].slice(0, 200) });
         return { ok: true };
-      }
+      });
       case "urlPlan": return withComfy((base) => comfy.api(base, "/ext/download-url", { method: "POST", body: { url: msg.url, folder: msg.folder, dry_run: true } }));
       case "civarchive": return withComfy((base) => comfy.api(base, "/ext/civarchive", { method: "POST", body: { sha256: msg.sha256 }, timeout: 45000 }));
       case "enqueue": {
