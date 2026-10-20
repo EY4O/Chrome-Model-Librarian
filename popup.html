@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Model Librarian</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="">
+    <b>Model Librarian</b>
+    <span id="dot" class="dot"></span>
+  </header>
+  <section id="conn" class="conn"></section>
+  <section>
+    <div class="row">
+      <h2>Downloads</h2>
+      <span class="spacer"></span>
+      <button id="clear" class="small ghost">Clear finished</button>
+    </div>
+    <div id="queue"></div>
+  </section>
+  <details id="settings">
+    <summary>ComfyUI address</summary>
+    <div class="dim">Leave empty to find ComfyUI by itself (ports 8188, 8000 and 8189 on this PC). For another PC, e.g. over Tailscale, type its address.</div>
+    <div class="row">
+      <input id="base" placeholder="http://127.0.0.1:8188" spellcheck="false">
+      <button id="save" class="small">Save</button>
+    </div>
+  </details>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

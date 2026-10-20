@@ -1,0 +1,95 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import * as Q from "../lib/queue.js";
+
+const item = (v, f, extra = {}) => ({ versionId: v, fileId: f, title: "Paper Cut — v1", file: "paper_cut.safetensors", size: 1000, ...extra });
+
+test("clicks are queued once; a failed one can be queued again", () => {
+  let { queue, added } = Q.enqueue([], item(11, 101), 1);
+  assert.equal(added, true);
+  assert.equal(queue[0].status, "queued");
+  assert.equal(queue[0].key, "11:101");
+  ({ queue, added } = Q.enqueue(queue, item(11, 101), 2));
+  assert.equal(added, false, "a second click on the same file doesn't add it twice");
+  queue = Q.applySend(queue, "11:101", { error: "Needs a login" }, 3);
+  assert.equal(queue[0].status, "error");
+  ({ queue, added } = Q.enqueue(queue, item(11, 101), 4));
+  assert.equal(added, true);
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].status, "queued");
+});
+
+test("Model Librarian's answers: started, already here, and errors", () => {
+  let { queue } = Q.enqueue([], item(11, 101));
+  ({ queue } = Q.enqueue(queue, item(21, 202)));
+  ({ queue } = Q.enqueue(queue, item(31, null)));
+  queue = Q.applySend(queue, "11:101", { status: "started", dest: "D:/models/loras/Illustrious/paper_cut.safetensors", job: { id: "j1", done: 0, total: 1000 } });
+  queue = Q.applySend(queue, "21:202", { status: "have", rel: "SDXL/aurora.safetensors" });
+  queue = Q.applySend(queue, "31:primary", { error: "CivitAI lookup failed: timeout", transient: true });
+  const by = Object.fromEntries(queue.map((x) => [x.key, x]));
+  assert.equal(by["11:101"].status, "downloading");
+  assert.equal(by["11:101"].jobId, "j1");
+  assert.equal(by["21:202"].status, "have");
+  assert.equal(by["21:202"].dest, "SDXL/aurora.safetensors");
+  assert.equal(by["31:primary"].status, "queued", "a passing CivitAI hiccup is tried again");
+  assert.equal(by["31:primary"].attempts, 1);
+  assert.deepEqual(Q.pending(queue).map((x) => x.key), ["31:primary"]);
+  assert.deepEqual(Q.active(queue).map((x) => x.key), ["11:101"]);
+});
+
+test("a hiccup that keeps failing is reported after a few tries", () => {
+  let { queue } = Q.enqueue([], item(31, null));
+  for (let i = 0; i < Q.MAX_ATTEMPTS; i++) queue = Q.applySend(queue, "31:primary", { error: "timeout", transient: true });
+  assert.equal(queue[0].status, "error");
+  assert.equal(queue[0].error, "timeout");
+});
+
+test("progress, completion and failures from Model Librarian's jobs", () => {
+  let { queue } = Q.enqueue([], item(11, 101));
+  ({ queue } = Q.enqueue(queue, item(12, 102)));
+  ({ queue } = Q.enqueue(queue, item(13, 103)));
+  queue = Q.applySend(queue, "11:101", { status: "started", job: { id: "a" } });
+  queue = Q.applySend(queue, "12:102", { status: "started", job: { id: "b" } });
+  queue = Q.applySend(queue, "13:103", { status: "downloading", job: { id: "c" } });
+  queue = Q.applyJobs(queue, [
+    { id: "a", status: "downloading", done: 400, total: 1000, speed: 50 },
+    { id: "b", status: "done", done: 1000, total: 1000, dest: "D:/x.safetensors" },
+    { id: "c", status: "error", error: "SHA256 mismatch" },
+  ]);
+  const by = Object.fromEntries(queue.map((x) => [x.key, x]));
+  assert.equal(by["11:101"].done, 400);
+  assert.equal(by["11:101"].status, "downloading");
+  assert.equal(by["12:102"].status, "done");
+  assert.equal(by["12:102"].dest, "D:/x.safetensors");
+  assert.equal(by["13:103"].status, "error");
+  assert.equal(by["13:103"].error, "SHA256 mismatch");
+  // jobs Model Librarian no longer lists (ComfyUI restarted) leave the item as it was
+  assert.deepEqual(Q.applyJobs(queue, []), queue);
+});
+
+test("retry, remove, clear finished, counts and the badge", () => {
+  let { queue } = Q.enqueue([], item(1, 1));
+  ({ queue } = Q.enqueue(queue, item(2, 2)));
+  ({ queue } = Q.enqueue(queue, item(3, 3)));
+  queue = Q.applySend(queue, "1:1", { status: "have" });
+  queue = Q.applySend(queue, "2:2", { error: "nope" });
+  assert.deepEqual(Q.counts(queue), { queued: 1, downloading: 0, finished: 1, error: 1 });
+  assert.deepEqual(Q.badge(queue), { text: "1", color: "#b7791f" });
+  queue = Q.retry(queue, "2:2");
+  assert.equal(queue.find((x) => x.key === "2:2").status, "queued");
+  queue = Q.clearFinished(queue);
+  assert.deepEqual(queue.map((x) => x.key), ["2:2", "3:3"]);
+  queue = Q.remove(queue, "3:3");
+  queue = Q.applySend(queue, "2:2", { error: "nope" });
+  assert.deepEqual(Q.badge(queue), { text: "!", color: "#d9534f" });
+  assert.deepEqual(Q.badge([]), { text: "", color: "#2f7cf6" });
+});
+
+test("a file's state on the model page: the queue, then the library", () => {
+  let { queue } = Q.enqueue([], item(11, 101));
+  assert.equal(Q.fileState(queue, 11, 101, true, "missing").status, "queued");
+  assert.equal(Q.fileState(queue, 12, 201, true, "have").status, "have");
+  assert.equal(Q.fileState(queue, 12, 202, false, null), null);
+  ({ queue } = Q.enqueue(queue, item(13, null)));
+  assert.equal(Q.fileState(queue, 13, 301, true, null).status, "queued", "a primary-file click covers the primary file");
+});

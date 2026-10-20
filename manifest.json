@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Model Librarian",
+  "version": "0.1.0",
+  "description": "One-click CivitAI downloads into your ComfyUI, sorted and SHA256-verified by Model Librarian. Waits for ComfyUI when it's closed.",
+  "minimum_chrome_version": "121",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "alarms",
+    "scripting",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://civitai.com/*",
+    "https://civitai.green/*",
+    "https://civitai.red/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://civitai.com/*",
+        "https://civitai.green/*",
+        "https://civitai.red/*"
+      ],
+      "js": [
+        "content/civitai.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Model Librarian",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/icon32.png"
+      ],
+      "matches": [
+        "https://civitai.com/*",
+        "https://civitai.green/*",
+        "https://civitai.red/*"
+      ]
+    }
+  ]
+}
