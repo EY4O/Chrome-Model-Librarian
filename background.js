@@ -105,6 +105,7 @@ function pump() {
 
 async function pumpOnce() {
   await setupRules();
+  await withQueue((q) => ({ queue: Q.wake(q) })); // paid / early access ones whose day has come
   const { settings, queue } = await load();
   const conn = await comfy.detect(settings.base);
   conn.checked = Date.now();
@@ -265,6 +266,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       }
       case "state": return load();
       case "retry": await withQueue((q) => ({ queue: Q.retry(q, msg.key) })); pump(); return { ok: true };
+      case "schedule": await withQueue((q) => ({ queue: Q.schedule(q, msg.key, msg.until, msg.why) })); return { ok: true };
       case "remove": await withQueue((q) => ({ queue: Q.remove(q, msg.key) })); return { ok: true };
       case "clear": await withQueue((q) => ({ queue: Q.clearFinished(q) })); return { ok: true };
       case "settings": { // any of base ("" = find it), saved, notify, withNeeds

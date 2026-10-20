@@ -28,6 +28,8 @@ const STATUS = {
   have: () => h("span", { class: "ok" }, "✓ Already in your library"),
   cancelled: () => h("span", { class: "dim" }, "Cancelled in Model Librarian"),
   error: (x) => h("span", { class: "err" }, x.error || "Failed"),
+  scheduled: (x) => h("span", { class: "warn", title: x.why || "" },
+    `⏰ Waiting until ${new Date(x.notBefore).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, then it starts by itself${x.why ? ` (${String(x.why).replace(/^CivitAI refused it even with your API key\. /, "").replace(/\.$/, "")})` : ""}`),
 };
 
 function render({ queue, conn, settings }) {
@@ -53,6 +55,7 @@ function item(x, conn) {
     h("div", { class: "row" },
       h("div", { class: "title", style: "flex:1" }, x.pageUrl ? h("a", { href: x.pageUrl, target: "_blank", title: x.title }, x.title) : x.title),
       ["error", "cancelled"].includes(x.status) ? h("button", { class: "small", onclick: () => send({ type: "retry", key: x.key }).then(refresh) }, "Retry") : null,
+      x.status === "scheduled" ? h("button", { class: "small ghost", title: "If you've bought it on CivitAI", onclick: () => send({ type: "retry", key: x.key }).then(refresh) }, "Try now") : null,
       x.status !== "downloading" ? h("button", { class: "link", title: "Remove from the list", onclick: () => send({ type: "remove", key: x.key }).then(refresh) }, "×") : null),
     h("div", { class: "file dim", title: x.file }, [x.file, fmtSize(x.size)].filter(Boolean).join(" · ")),
     x.status === "downloading" ? h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })) : null,

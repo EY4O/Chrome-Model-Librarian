@@ -126,9 +126,12 @@
   const planKey = (d) => `p:${d.folder}/${d.rel}`.toLowerCase();
   const itemState = (it) => (it.download ? s.queue.find((x) => x.key === planKey(it.download)) : null);
 
-  function getItem(it) {
+  const freeLater = (it) => !!(it.available_at && Date.parse(it.available_at) > Date.now());
+
+  function getItem(it, later = false) {
     return send({ type: "enqueue", item: { kind: "plan", download: it.download, title: `${KINDS[it.kind] || it.kind}: ${it.name}${it.version ? ` (${it.version})` : ""}`,
-      file: it.download.rel.split("/").pop(), size: it.download.size || null, pageUrl: it.page_url || it.download.page_url || "" } });
+      file: it.download.rel.split("/").pop(), size: it.download.size || null, pageUrl: it.page_url || it.download.page_url || "",
+      ...(later && freeLater(it) ? { notBefore: Date.parse(it.available_at) + AFTER_FREE, why: it.note } : {}) } });
   }
 
   function recipeRow(it) {
@@ -137,7 +140,14 @@
     if (it.status === "present" || (q && ["done", "have"].includes(q.status))) right = h("span", { class: "state ok", title: it.local || "" }, "✓ In your library");
     else if (q && q.status === "downloading") right = h("span", { class: "state" }, q.total ? `${Math.floor((100 * q.done) / q.total)}%` : "Starting…");
     else if (q && q.status === "queued") right = h("span", { class: "state q" }, s.conn.ok ? "Sending…" : "Queued");
-    else if (q && q.status === "error") right = h("button", { class: "dl ghost", title: q.error || "", onclick: () => send({ type: "retry", key: q.key }) }, "Retry");
+    else if (q && q.status === "scheduled") right = h("div", { class: "state q", title: q.why || "" }, `⏰ ${day(q.notBefore)}`,
+      h("div", null, h("button", { class: "dl ghost", style: "padding:2px 8px;margin-top:3px", onclick: () => send({ type: "retry", key: q.key }) }, "Try now")));
+    else if (q && q.status === "error") right = h("div", { class: "acts" },
+      h("button", { class: "dl ghost", title: q.error || "", onclick: () => send({ type: "retry", key: q.key }) }, "Retry"),
+      freeLater(it) ? h("button", { class: "dl", onclick: () => send({ type: "schedule", key: q.key, until: it.available_at, why: it.note }) }, `Wait for ${day(it.available_at)}`) : null);
+    else if (it.download && freeLater(it)) right = h("div", { class: "acts" },
+      h("button", { class: "dl", title: `Waits in the downloads list and starts by itself after ${day(it.available_at)}`, onclick: () => getItem(it, true) }, `Get it on ${day(it.available_at)}`),
+      h("button", { class: "dl ghost", title: "If you've bought it on CivitAI", onclick: () => getItem(it) }, "Try now"));
     else if (it.download) right = h("button", { class: "dl", onclick: () => getItem(it) }, "Download");
     else right = h("span", { class: "state dim", title: it.note || "" }, "Not available");
     return h("div", { class: "item" },
@@ -162,7 +172,7 @@
     }
     const rec = r.recipe || {};
     const items = r.items || [];
-    const missing = items.filter((it) => it.status !== "present" && it.download && !itemState(it));
+    const missing = items.filter((it) => it.status !== "present" && it.download && !itemState(it) && !freeLater(it));
     body.append(h("div", { class: "row", style: "display:flex;gap:8px;align-items:center" },
       r.thumb ? h("img", { class: "thumb", src: r.thumb, alt: "" }) : null,
       h("div", { style: "min-width:0" }, h("div", { class: "name" }, rec.title || "This image's recipe"),
@@ -212,11 +222,15 @@
     return null;
   }
 
-  async function download(v, f) {
+  const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const AFTER_FREE = 15 * 60 * 1000;
+
+  async function download(v, f, later = false) {
     const m = s.info.model;
     const r = await send({ type: "enqueue", item: {
       versionId: v.id, fileId: f.id, title: `${m.name} — ${v.name}`, file: f.name, size: f.size,
       pageUrl: `https://${s.page.host}/models/${m.id}?modelVersionId=${v.id}`,
+      ...(later && v.accessUntil ? { notBefore: Date.parse(v.accessUntil) + AFTER_FREE, why: v.access } : {}),
     } });
     if (r && r.error) { s.error = r.error; render(); return; }
     // the text encoder and VAE it needs, with it (unless switched off, or you have them in some precision)
@@ -238,8 +252,15 @@
   function fileRow(v, f) {
     const st = stateOf(v, f);
     let right;
-    if (!st) {
+    if (!st && v.accessUntil) { // paid / early access for now: wait for it, or try now (bought it?)
+      right = h("div", { class: "acts" },
+        h("button", { class: "dl", title: `Waits in the downloads list and starts by itself after ${day(v.accessUntil)}`, onclick: () => download(v, f, true) }, `Get it on ${day(v.accessUntil)}`),
+        h("button", { class: "dl ghost", title: "If you've bought it on CivitAI", onclick: () => download(v, f) }, "Try now"));
+    } else if (!st) {
       right = h("button", { class: "dl", onclick: () => download(v, f) }, "Download");
+    } else if (st.status === "scheduled") {
+      right = h("div", { class: "state q", title: st.why || "" }, `⏰ ${day(st.notBefore)}`,
+        h("div", null, h("button", { class: "dl ghost", style: "padding:2px 8px;margin-top:3px", onclick: () => send({ type: "retry", key: st.key }) }, "Try now")));
     } else if (st.status === "queued") {
       right = h("div", { class: "state q", title: s.conn.ok ? "Being handed to Model Librarian" : "Starts as soon as ComfyUI is running" },
         s.conn.ok ? "Sending…" : "Queued");
@@ -249,7 +270,9 @@
     } else if (st.status === "done" || st.status === "have") {
       right = h("div", { class: "state ok", title: st.dest || "" }, st.status === "done" ? "✓ Downloaded" : "✓ In your library");
     } else if (st.status === "error" || st.status === "cancelled") {
-      right = h("button", { class: "dl ghost", title: st.error || "Cancelled", onclick: () => send({ type: "retry", key: st.key }) }, "Retry");
+      right = h("div", { class: "acts" },
+        h("button", { class: "dl ghost", title: st.error || "Cancelled", onclick: () => send({ type: "retry", key: st.key }) }, "Retry"),
+        v.accessUntil ? h("button", { class: "dl", title: `Retried by itself after ${day(v.accessUntil)}`, onclick: () => send({ type: "schedule", key: st.key, until: v.accessUntil, why: v.access }) }, `Wait for ${day(v.accessUntil)}`) : null);
     }
     const fit = s.info.fits && s.info.fits[f.id];
     const best = s.info.rec && s.info.rec.fileId === f.id;

@@ -127,6 +127,8 @@ Every model card on CivitAI (home, search, a user's page, a collection) is check
 <summary><b>⏳ The queue</b></summary>
 
 Each click is stored in the extension first (`chrome.storage`), so nothing is lost if ComfyUI is closed, restarts or the browser restarts. The queue is sent when a Model Librarian answers: every 30 seconds, when a ComfyUI tab finishes loading, and right after a click. Once Model Librarian has a download, the extension follows its progress every 2 seconds. If CivitAI fails for a moment, the item is tried again a few times before it's marked as failed; failed items have **Retry**.
+
+A version that's paid or early access for now (CivitAI says until when) offers **Get it on <date>**: it waits in the downloads list (**⏰ Waiting until …** in the popup) and starts by itself once that day has passed, with **Try now** if you've bought it. A download CivitAI refuses for that reason turns into such a wait by itself, and a failed one can be set to **Wait for <date>**.
 </details>
 
 <details>

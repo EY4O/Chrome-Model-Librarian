@@ -73,7 +73,7 @@ test("retry, remove, clear finished, counts and the badge", () => {
   ({ queue } = Q.enqueue(queue, item(3, 3)));
   queue = Q.applySend(queue, "1:1", { status: "have" });
   queue = Q.applySend(queue, "2:2", { error: "nope" });
-  assert.deepEqual(Q.counts(queue), { queued: 1, downloading: 0, finished: 1, error: 1 });
+  assert.deepEqual(Q.counts(queue), { queued: 1, downloading: 0, finished: 1, error: 1, scheduled: 0 });
   assert.deepEqual(Q.badge(queue), { text: "1", color: "#b7791f" });
   queue = Q.retry(queue, "2:2");
   assert.equal(queue.find((x) => x.key === "2:2").status, "queued");
@@ -104,4 +104,29 @@ test("companions (a text encoder or VAE a model needs) queue under their own key
   assert.equal(Q.enqueue(queue, { ...c, name: "QWEN_IMAGE_VAE.safetensors" }).added, false, "same file, any case: once");
   queue = Q.applySend(queue, item.key, { status: "started", job: { id: "j9" } });
   assert.equal(queue[0].status, "downloading");
+});
+
+test("paid / early access: scheduled for when it's free, then sent by itself", () => {
+  const Q2 = Q;
+  let { queue } = Q2.enqueue([], { versionId: 5, fileId: 50, title: "Ed Benes — v1", notBefore: Date.parse("2026-10-25T15:20:00Z"), why: "Paid early access until 25 Oct" });
+  assert.equal(queue[0].status, "scheduled");
+  assert.deepEqual(Q2.pending(queue), [], "not sent before its time");
+  assert.equal(Q2.wake(queue, Date.parse("2026-10-24T00:00:00Z"))[0].status, "scheduled");
+  assert.equal(Q2.wake(queue, Date.parse("2026-10-25T16:00:00Z"))[0].status, "queued", "woken once the time has come");
+  assert.equal(Q2.counts(queue).scheduled, 1);
+  assert.deepEqual(Q2.badge(queue), { text: "", color: "#2f7cf6" }, "waiting ones don't count as to-do");
+  assert.equal(Q2.retry(queue, "5:50")[0].status, "queued", "Try now");
+
+  // a refusal Model Librarian dates (job error + available_at) becomes a wait, not a failure
+  ({ queue } = Q2.enqueue([], { versionId: 6, fileId: 60 }));
+  queue = Q2.applySend(queue, "6:60", { status: "started", job: { id: "j6" } });
+  queue = Q2.applyJobs(queue, [{ id: "j6", status: "error", error: "Paid early access until 25 Oct", available_at: "2999-10-25T15:05:35Z" }]);
+  assert.equal(queue[0].status, "scheduled");
+  assert.equal(queue[0].notBefore, Date.parse("2999-10-25T15:05:35Z") + Q2.AFTER_FREE);
+  assert.equal(queue[0].why, "Paid early access until 25 Oct");
+  // an old failure, scheduled by hand
+  ({ queue } = Q2.enqueue([], { versionId: 7, fileId: 70 }));
+  queue = Q2.applySend(queue, "7:70", { error: "CivitAI requires an API key" });
+  queue = Q2.schedule(queue, "7:70", "2999-01-01T00:00:00Z");
+  assert.equal(queue[0].status, "scheduled");
 });
