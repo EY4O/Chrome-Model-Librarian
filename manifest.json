@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Model Librarian",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One-click CivitAI downloads into your ComfyUI, sorted and SHA256-verified by Model Librarian. Waits for ComfyUI when it's closed.",
   "minimum_chrome_version": "121",
   "icons": {

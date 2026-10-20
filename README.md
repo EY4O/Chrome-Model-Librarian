@@ -11,13 +11,14 @@
 
 A Chrome and Edge extension for people who use [Model Librarian](https://github.com/EY4O/ComfyUI-Model-Librarian) in ComfyUI. It puts a **Download with Model Librarian** panel on every CivitAI model page. Model Librarian does the download inside ComfyUI, the same way its Recipes tab does: the right folder for the model's type, a subfolder for its base model, SHA256 check, resume, metadata and preview. ComfyUI doesn't have to be open when you click: downloads wait in the extension and start when it is.
 
-<p align="center"><img src="docs/images/panel-queued.png" width="370" alt="The panel on a CivitAI model page, with a download waiting for ComfyUI"></p>
+<p align="center"><img src="docs/images/panel-best.png" width="370" alt="The panel on a CivitAI model page, suggesting the best file for an RTX 4070"></p>
 
-> **⚠ Needs Model Librarian 1.11.0 or newer** in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
+> **⚠ Needs Model Librarian 1.11.0 or newer** (1.12.0 for the best-file suggestions) in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
 
 ## ✨ Key Features
 
 - ⬇️ **One click per file** — every version and file of a model (full, pruned, fp16, a bundled VAE), with sizes.
+- ★ **Best file for your PC** — rates every file against your GPU, its VRAM and the formats your ComfyUI runs at full speed (FP8, NVFP4, INT8/INT4, GGUF), marks the best one and says why the others are slower.
 - 🗂️ **Lands in the right place** — checkpoints, LoRAs, embeddings, VAEs, ControlNets, upscalers and more go to their ComfyUI folders, sorted by base model like Model Librarian's Organize.
 - ⏳ **Queue while ComfyUI is closed** — clicks are kept in the extension and sent the moment ComfyUI is reachable (checked every 30 seconds and whenever a ComfyUI tab opens).
 - ✅ **Knows what you have** — files already in your library show **✓ In your library** (by version or by SHA256 under any name), and nothing is downloaded twice.
@@ -30,6 +31,7 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 | | |
 |:---:|:---:|
 | ![Already in your library](docs/images/panel-owned.png) **Already in your library** — found by version or SHA256 | ![Popup](docs/images/popup.png) **Popup** — connection, queue and progress |
+| ![Queued](docs/images/panel-queued.png) **ComfyUI closed?** — the download waits and starts when it runs | |
 
 ## 📦 Installation
 
@@ -65,6 +67,18 @@ Not published yet.
 ComfyUI refuses requests from other origins (like an extension) when it listens on 127.0.0.1 or localhost, unless it was started with `--enable-cors-header`. The extension's own requests to those addresses are sent without an `Origin` header (a `declarativeNetRequest` rule that only applies to requests the extension itself makes), so they get through without changing how ComfyUI starts and without a ComfyUI tab, which matters for Comfy Desktop's own window. If ComfyUI still refuses, the request is run inside an open ComfyUI tab, where it's same-origin.
 
 Websites can't use this: the rule only matches requests from this extension, and everything else still meets ComfyUI's own check.
+</details>
+
+<details>
+<summary><b>★ Which file suits your PC</b></summary>
+
+Model Librarian reports what decides it: the GPU and its VRAM (minus the headroom set in its **Settings**), which quantized formats this ComfyUI runs at full speed on that GPU (ComfyUI's own checks), and whether the GGUF and Nunchaku loaders are installed. The extension reads each file's format from its name (CivitAI's format tags are often wrong), then rates it:
+
+- **✓** fits in the VRAM budget and runs natively;
+- **◐** works, but slower: part of it runs from RAM, or the format isn't native on this GPU (NVFP4 and MXFP8 need an RTX 50-series, FP8 an RTX 40-series);
+- **✗** can't load here (e.g. a GGUF file without ComfyUI-GGUF).
+
+The **★ Best for your GPU** pick is the file with the most precision that still fits and runs fast; among equals, the newest version. Text encoders and VAEs are never picked. In the version list, ★ marks the pick and ✓ / ◐ / ✗ the best file of each version.
 </details>
 
 <details>

@@ -10,6 +10,7 @@
 | `popup.html/js/css` | Toolbar popup: connection, queue, ComfyUI address. |
 | `lib/queue.js` | The queue as pure functions (tested). |
 | `lib/civitai.js` | CivitAI model pages and API (tested). |
+| `lib/fit.js` | Which file suits this PC: format from the file name, verdict and score per file, the recommendation (tested). |
 | `lib/comfy.js` | Talking to Model Librarian: direct, or through an open ComfyUI tab (tested). |
 | `tools/make_icons.py` | Toolbar icons from `docs/images/icon.png`. |
 
@@ -19,7 +20,7 @@ The extension uses four routes Model Librarian (≥ 1.11.0) serves under `/sm-fe
 
 | Route | Does |
 |---|---|
-| `GET /ext/hello` | `{app: "model-librarian", version, models_root, free_bytes, civitai_key, active_downloads}` |
+| `GET /ext/hello` | `{app: "model-librarian", version, models_root, free_bytes, civitai_key, active_downloads, system}`; `system` (1.12.0+): `gpu, vram_total, capability, budget, fast {fp8, nvfp4, mxfp8, int8}, formats, loaders {gguf, nunchaku}` |
 | `POST /ext/lookup` | `{version_ids, hashes}` → which are already in the library (`have` / `downloading` / `missing`) |
 | `POST /ext/download` | `{version_id, file_id?, dry_run?}` → `started` (with the job), `have`, `downloading` or `planned` |
 | `GET /ext/jobs?ids=` | Progress of those downloads |

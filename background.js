@@ -5,6 +5,7 @@
 import * as comfy from "./lib/comfy.js";
 import * as Q from "./lib/queue.js";
 import { fetchModel } from "./lib/civitai.js";
+import { assess, recommend, gpuName } from "./lib/fit.js";
 
 const RULE_ID = 1;
 
@@ -110,7 +111,19 @@ async function modelInfo(page) {
       owned = (await comfy.api(conn.base, "/ext/lookup", { method: "POST", body: { version_ids: model.versions.map((v) => v.id) } })).versions || {};
     } catch {}
   }
-  return { model, owned, conn };
+  // which file suits this PC (Model Librarian 1.12.0+ describes the system)
+  const sys = conn.ok ? conn.system : null;
+  const fits = {};
+  if (sys) {
+    for (const v of model.versions) {
+      for (const f of v.files) {
+        const a = assess(f, v.name, sys);
+        fits[f.id] = { verdict: a.verdict, notes: a.notes, label: a.q.label };
+      }
+    }
+  }
+  return { model, owned, conn, fits, rec: recommend(model, sys), gpu: sys ? gpuName(sys) : null, budget: sys ? sys.budget : null,
+    needsUpdate: !!conn.ok && !sys };
 }
 
 // ---------------------------------------------------------------- messages from the page and the popup

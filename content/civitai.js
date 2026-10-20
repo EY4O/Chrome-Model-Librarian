@@ -37,6 +37,13 @@
     .ok { color: #3fb950; } .q { color: #e3b341; }
     .bar { height: 4px; border-radius: 2px; background: #2c2f37; overflow: hidden; margin-top: 4px; }
     .bar > div { height: 100%; background: #2f7cf6; }
+    .fit { font-size: 11.5px; margin-top: 3px; }
+    .fit.good { color: #7ee2a8; } .fit.slow { color: #e3b341; } .fit.no { color: #f0727e; }
+    .file.best { border-color: #2f7cf6; }
+    .tag { display: inline-block; font-size: 10.5px; font-weight: 700; color: #fff; background: #2f7cf6; border-radius: 5px; padding: 0 5px; margin-right: 5px; }
+    .rec { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px; background: rgba(47,124,246,.12); border: 1px solid rgba(47,124,246,.45); font-size: 12px; }
+    .rec b { color: #fff; }
+    .rec button { margin-left: auto; flex: none; border: 0; border-radius: 7px; padding: 4px 9px; background: #2f7cf6; color: #fff; font: 600 11.5px system-ui, sans-serif; cursor: pointer; }
   `;
 
   const ICON = chrome.runtime.getURL("icons/icon32.png");
@@ -133,12 +140,28 @@
     } else if (st.status === "error" || st.status === "cancelled") {
       right = h("button", { class: "dl ghost", title: st.error || "Cancelled", onclick: () => send({ type: "retry", key: st.key }) }, "Retry");
     }
-    return h("div", { class: "file" },
+    const fit = s.info.fits && s.info.fits[f.id];
+    const best = s.info.rec && s.info.rec.fileId === f.id;
+    const mark = { good: "✓", slow: "◐", no: "✗" }[fit && fit.verdict] || "";
+    return h("div", { class: "file" + (best ? " best" : "") },
       h("div", { class: "meta" },
-        h("div", { class: "fn", title: f.name }, f.name || "file"),
+        h("div", { class: "fn", title: f.name }, best ? h("span", { class: "tag" }, "★ Best for you") : null, f.name || "file"),
         h("div", { class: "dim" }, [f.label, fmtSize(f.size), f.primary ? "primary" : null].filter(Boolean).join(" · ")),
+        fit && fit.notes.length ? h("div", { class: "fit " + fit.verdict, title: fit.notes.join("\n") }, `${mark} ${fit.notes.join(" · ")}`) : null,
         st && st.status === "error" ? h("div", { class: "err" }, st.error) : null),
       right);
+  }
+
+  function versionMark(v) {
+    const rec = s.info.rec;
+    if (rec && rec.versionId === v.id) return "★ ";
+    const order = { good: 3, slow: 2, no: 1 };
+    let best = null;
+    for (const f of v.files) {
+      const fit = s.info.fits && s.info.fits[f.id];
+      if (fit && (!best || order[fit.verdict] > order[best])) best = fit.verdict;
+    }
+    return { good: "✓ ", slow: "◐ ", no: "✗ " }[best] || "";
   }
 
   function render() {
@@ -160,12 +183,23 @@
       if (!m.downloadable) body.append(h("div", { class: "warn" }, `A ${m.type || "file of this kind"} isn't a model ComfyUI loads, so Model Librarian doesn't download it.`));
       else if (!v) body.append(h("div", { class: "dim" }, "This model has no versions to download."));
       else {
+        const rec = s.info.rec;
+        const rv = rec && m.versions.find((x) => x.id === rec.versionId);
+        const rf = rv && rv.files.find((x) => x.id === rec.fileId);
+        if (rv && rf) {
+          body.append(h("div", { class: "rec", title: ((s.info.fits[rf.id] || {}).notes || []).join("\n") },
+            h("div", null, `★ Best for your ${s.info.gpu}: `, h("b", null, rv.name), ` · ${fmtSize(rf.size)}`),
+            rv.id !== v.id ? h("button", { onclick: () => { s.versionId = rv.id; render(); } }, "Show") : null));
+        }
         if (m.versions.length > 1) {
           body.append(h("select", { onchange: (e) => { s.versionId = Number(e.target.value); render(); } },
-            m.versions.map((x) => h("option", { value: x.id, selected: x.id === v.id }, `${x.name}${x.baseModel ? ` · ${x.baseModel}` : ""}`))));
+            m.versions.map((x) => h("option", { value: x.id, selected: x.id === v.id }, `${versionMark(x)}${x.name}${x.baseModel ? ` · ${x.baseModel}` : ""}`))));
         } else body.append(h("div", { class: "dim" }, `${v.name}${v.baseModel ? ` · ${v.baseModel}` : ""}`));
         if (v.earlyAccess) body.append(h("div", { class: "warn" }, "Early access: the download may need a purchase and your CivitAI key in Model Librarian."));
-        body.append(...v.files.map((f) => fileRow(v, f)));
+        const rank = (f) => (rec && rec.fileId === f.id ? 0 : { good: 1, slow: 2, no: 3 }[(s.info.fits[f.id] || {}).verdict] || 2);
+        body.append(...[...v.files].sort((a, b) => rank(a) - rank(b)).map((f) => fileRow(v, f)));
+        if (s.info.needsUpdate) body.append(h("div", { class: "dim" }, "Update Model Librarian to 1.12.0 or newer to see which file suits your PC."));
+        else if (!s.conn.ok) body.append(h("div", { class: "dim" }, "With ComfyUI running, the panel also shows which file suits your PC."));
         if (!s.conn.ok) body.append(h("div", { class: "dim" }, `${s.conn.error || "ComfyUI isn't running"}. Downloads wait in the extension and start when it is.`));
         else if (s.conn.civitaiKey === false) body.append(h("div", { class: "dim" }, "Tip: some models need your CivitAI key, set in Model Librarian's Settings."));
       }
@@ -196,7 +230,11 @@
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== "local") return;
     if (ch.queue) s.queue = ch.queue.newValue || [];
-    if (ch.conn) s.conn = ch.conn.newValue || { ok: false };
+    if (ch.conn) {
+      const was = s.conn.ok;
+      s.conn = ch.conn.newValue || { ok: false };
+      if (!was && s.conn.ok && s.page && s.info) loadModel(); // connected now: library status and fit
+    }
     render();
   });
   sync();
