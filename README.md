@@ -79,6 +79,8 @@ Model Librarian reports what decides it: the GPU and its VRAM (minus the headroo
 - **◐** works, but slower: part of it runs from RAM, or the format isn't native on this GPU (NVFP4 and MXFP8 need an RTX 50-series, FP8 an RTX 40-series);
 - **✗** can't load here (e.g. a GGUF file without ComfyUI-GGUF).
 
+A standalone diffusion model (a "Diffusion Model" or GGUF file, not an all-in-one checkpoint) also loads a text encoder. ComfyUI can move the encoder out of VRAM while sampling, so its whole size isn't held back, but about 2 GB (or the encoder's own size, if smaller) is kept free for it, as model makers advise; each file says so and names the encoder (Krea 2's is `qwen3vl_4b_fp8_scaled`, 4.9 GB).
+
 The **★ Best for your GPU** pick is the file with the most precision that still fits and runs fast; among equals, the newest version. Text encoders and VAEs are never picked. In the version list, ★ marks the pick and ✓ / ◐ / ✗ the best file of each version.
 </details>
 

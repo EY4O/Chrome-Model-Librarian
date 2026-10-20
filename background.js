@@ -5,7 +5,7 @@
 import * as comfy from "./lib/comfy.js";
 import * as Q from "./lib/queue.js";
 import { fetchModel } from "./lib/civitai.js";
-import { assess, recommend, gpuName } from "./lib/fit.js";
+import { assess, recommend, gpuName, needsTextEncoder, textEncoderOf } from "./lib/fit.js";
 
 const RULE_ID = 1;
 
@@ -116,15 +116,26 @@ async function modelInfo(page) {
   // which file suits this PC (Model Librarian 1.12.0+ describes the system)
   const sys = conn.ok ? conn.system : null;
   const fits = {};
+  const tes = {};
   if (sys) {
+    // the text encoder each base model loads (Model Librarian 1.13.0+), looked up once per base model
+    const firsts = new Map();
+    for (const v of model.versions) {
+      const f = v.files.find(needsTextEncoder);
+      if (f && !firsts.has(v.baseModel)) firsts.set(v.baseModel, f.name);
+    }
+    await Promise.all([...firsts].map(async ([base, file]) => {
+      const r = await companions(base, file);
+      tes[base] = textEncoderOf(r && r.companions);
+    }));
     for (const v of model.versions) {
       for (const f of v.files) {
-        const a = assess(f, v.name, sys);
+        const a = assess(f, v.name, sys, { te: tes[v.baseModel] || null });
         fits[f.id] = { verdict: a.verdict, notes: a.notes, label: a.q.label };
       }
     }
   }
-  return { model, owned, conn, fits, rec: recommend(model, sys), gpu: sys ? gpuName(sys) : null, budget: sys ? sys.budget : null,
+  return { model, owned, conn, fits, rec: recommend(model, sys, tes), gpu: sys ? gpuName(sys) : null, budget: sys ? sys.budget : null,
     needsUpdate: !!conn.ok && !sys };
 }
 

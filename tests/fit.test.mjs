@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { quantOf, assess, recommend, gpuName } from "../lib/fit.js";
+import { quantOf, assess, recommend, gpuName, textEncoderOf } from "../lib/fit.js";
 
 const GB = 1024 ** 3;
 const f = (id, name, gbSize, md = {}, extra = {}) => ({ id, name, size: Math.round(gbSize * GB), primary: true, type: "Diffusion Model", metadata: md, ...extra });
@@ -45,7 +45,7 @@ test("the format comes from the file name, not CivitAI's tag", () => {
 test("RTX 4070 12 GB: what fits, what runs slow, and why", () => {
   const int4 = assess(MUSE.versions[0].files[0], "", RTX4070);
   assert.equal(int4.verdict, "good");
-  assert.match(int4.notes.join(" "), /fits in your 10\.5 GB/);
+  assert.match(int4.notes.join(" "), /fits in your 8\.5 GB \(10\.5 GB VRAM budget less 2\.0 GB for the text encoder\)/);
   const nvfp4 = assess(MUSE.versions[1].files[0], "", RTX4070);
   assert.equal(nvfp4.verdict, "slow");
   assert.match(nvfp4.notes.join(" "), /RTX 50/);
@@ -81,4 +81,19 @@ test("GPU names", () => {
   assert.equal(gpuName(RTX4070), "RTX 4070");
   assert.equal(gpuName({ gpu: "mps" }), "mps");
   assert.equal(gpuName(null), "your GPU");
+});
+
+test("room is kept for the text encoder a diffusion model loads", () => {
+  const QWEN = textEncoderOf([{ folder: "text_encoders", name: "qwen3vl_4b_fp8_scaled.safetensors", size: 4.88 * GB }, { folder: "vae", name: "qwen_image_vae.safetensors", size: 0.24 * GB }]);
+  assert.deepEqual(QWEN, { names: ["qwen3vl_4b_fp8_scaled.safetensors"], size: 4.88 * GB }, "the text encoder only, not the VAE");
+  const big = f(9, "muse_q5.gguf", 9.5, { format: "GGUF" });
+  assert.equal(assess({ ...big, type: "Model", name: "allinone_fp8.safetensors" }, "", RTX4070).verdict, "good", "an all-in-one checkpoint keeps nothing back: 9.5 GB fits 10.5");
+  const a = assess(big, "", RTX4070, { te: QWEN });
+  assert.equal(a.verdict, "slow", "the same 9.5 GB as a diffusion model is over 8.5 GB once its encoder has room");
+  assert.match(a.notes.join(" "), /Also loads qwen3vl_4b_fp8_scaled\.safetensors \(4\.9 GB\); ComfyUI can move it out of VRAM while sampling, so 2\.0 GB is kept for it/);
+  const small = assess(big, "", RTX4070, { te: { names: ["clip_l.safetensors"], size: 0.25 * GB } });
+  assert.match(small.notes.join(" "), /less 0\.3 GB for the text encoder/, "a small encoder keeps only its own size back");
+  assert.match(assess(big, "", RTX4070).notes.join(" "), /its size isn't known yet/, "without Model Librarian's list: the usual 2 GB, said so");
+  assert.equal(textEncoderOf([{ folder: "vae", name: "ae.safetensors" }]), null);
+  assert.equal(textEncoderOf([{ folder: "text_encoders", name: "t5.safetensors" }]).size, null, "an encoder you don't have yet: size unknown");
 });
