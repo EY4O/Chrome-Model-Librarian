@@ -43,6 +43,10 @@
     .tag { display: inline-block; font-size: 10.5px; font-weight: 700; color: #fff; background: #2f7cf6; border-radius: 5px; padding: 0 5px; margin-right: 5px; }
     .rec { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px; background: rgba(47,124,246,.12); border: 1px solid rgba(47,124,246,.45); font-size: 12px; }
     .rec b { color: #fff; }
+    .needs { display: flex; flex-direction: column; gap: 5px; padding-top: 4px; border-top: 1px solid #2c2f37; }
+    .needs .row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .needs .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .needs .h { font-size: 12px; font-weight: 600; }
     .rec button { margin-left: auto; flex: none; border: 0; border-radius: 7px; padding: 4px 9px; background: #2f7cf6; color: #fff; font: 600 11.5px system-ui, sans-serif; cursor: pointer; }
   `;
 
@@ -80,7 +84,7 @@
     catch (e) { res({ error: String(e.message || e) }); } // the extension was reloaded: this page needs a refresh
   });
 
-  const s = { page: null, key: null, open: false, info: null, error: null, versionId: null, queue: [], conn: { ok: false } };
+  const s = { page: null, key: null, open: false, info: null, error: null, versionId: null, queue: [], conn: { ok: false }, needs: {} };
 
   function page() {
     const m = location.pathname.match(/^\/models\/(\d+)/);
@@ -152,6 +156,57 @@
       right);
   }
 
+  // What a diffusion model also needs (text encoders, VAE), from ComfyUI's own workflow templates.
+  const mainFile = (v) => v.files.find((f) => f.type === "Diffusion Model" || /\.gguf$/i.test(f.name || ""));
+  function needsFor(v) {
+    const f = mainFile(v);
+    if (!f || !s.conn.ok) return null;
+    const key = `${v.baseModel}|${f.name}`;
+    if (!(key in s.needs)) {
+      s.needs[key] = null; // loading
+      send({ type: "companions", baseModel: v.baseModel, fileName: f.name }).then((r) => { s.needs[key] = r || { companions: [] }; render(); });
+    }
+    return { key, file: f, data: s.needs[key] };
+  }
+
+  function needsSection(v) {
+    const n = needsFor(v);
+    if (!n) return null;
+    if (!n.data) return h("div", { class: "needs" }, h("div", { class: "dim" }, "Checking what else it needs…"));
+    if (n.data.error === "update") return h("div", { class: "needs" }, h("div", { class: "dim" }, "Update Model Librarian to 1.13.0 to see the text encoder and VAE it needs."));
+    const list = n.data.companions || [];
+    if (!list.length) return null;
+    const rows = list.map((c) => {
+      const item = s.queue.find((x) => x.key === `c:${c.name.toLowerCase()}`);
+      let right;
+      if (item && item.status === "downloading") right = h("span", { class: "state" }, item.total ? `${Math.floor((100 * item.done) / item.total)}%` : "Starting…");
+      else if (item && item.status === "queued") right = h("span", { class: "state q" }, s.conn.ok ? "Sending…" : "Queued");
+      else if (c.have || (item && ["done", "have"].includes(item.status))) right = h("span", { class: "state ok", title: c.have || "" }, "✓ In your library");
+      else if (item && item.status === "error") right = h("button", { class: "dl ghost", title: item.error || "", onclick: () => send({ type: "retry", key: item.key }) }, "Retry");
+      else right = h("button", { class: "dl", onclick: () => getCompanion(v, n.file, c) }, "Download");
+      return h("div", { class: "row" },
+        h("div", { class: "nm", title: `${c.folder}/${c.name}${c.alt ? `\nYou have ${c.alt}, the same model in another precision` : ""}` },
+          h("span", { class: "dim" }, c.folder === "vae" ? "VAE " : c.folder === "clip_vision" ? "CLIP vision " : "Text encoder "), c.name,
+          c.alt && !c.have ? h("div", { class: "dim" }, `≈ you have ${c.alt.split(/[\\/]/).pop()} (other precision)`) : null),
+        right);
+    });
+    const missing = list.filter((c) => !c.have && !s.queue.some((x) => x.key === `c:${c.name.toLowerCase()}`));
+    return h("div", { class: "needs" },
+      h("div", { class: "row" }, h("span", { class: "h" }, "Also needs"),
+        h("span", { class: "dim", style: "flex:1" }, `from ComfyUI's ${n.data.family || ""} template`),
+        missing.length > 1 ? h("button", { class: "dl ghost", onclick: () => missing.forEach((c) => getCompanion(v, n.file, c)) }, `Get ${missing.length}`) : null),
+      ...rows);
+  }
+
+  async function getCompanion(v, f, c) {
+    const r = await send({ type: "enqueue", item: {
+      kind: "companion", name: c.name, folder: c.folder, baseModel: v.baseModel, forFile: f.name,
+      title: `${c.folder === "vae" ? "VAE" : c.folder === "clip_vision" ? "CLIP vision" : "Text encoder"} for ${s.info.model.name}`,
+      file: c.name, pageUrl: c.url,
+    } });
+    if (r && r.error) { s.error = r.error; render(); }
+  }
+
   function versionMark(v) {
     const rec = s.info.rec;
     if (rec && rec.versionId === v.id) return "★ ";
@@ -198,6 +253,8 @@
         if (v.earlyAccess) body.append(h("div", { class: "warn" }, "Early access: the download may need a purchase and your CivitAI key in Model Librarian."));
         const rank = (f) => (rec && rec.fileId === f.id ? 0 : { good: 1, slow: 2, no: 3 }[(s.info.fits[f.id] || {}).verdict] || 2);
         body.append(...[...v.files].sort((a, b) => rank(a) - rank(b)).map((f) => fileRow(v, f)));
+        const needs = needsSection(v);
+        if (needs) body.append(needs);
         if (s.info.needsUpdate) body.append(h("div", { class: "dim" }, "Update Model Librarian to 1.12.0 or newer to see which file suits your PC."));
         else if (!s.conn.ok) body.append(h("div", { class: "dim" }, "With ComfyUI running, the panel also shows which file suits your PC."));
         if (!s.conn.ok) body.append(h("div", { class: "dim" }, `${s.conn.error || "ComfyUI isn't running"}. Downloads wait in the extension and start when it is.`));
@@ -233,7 +290,7 @@
     if (ch.conn) {
       const was = s.conn.ok;
       s.conn = ch.conn.newValue || { ok: false };
-      if (!was && s.conn.ok && s.page && s.info) loadModel(); // connected now: library status and fit
+      if (!was && s.conn.ok && s.page && s.info) { s.needs = {}; loadModel(); } // connected now: library status, fit, companions
     }
     render();
   });

@@ -16,13 +16,15 @@
 
 ## Model Librarian's side
 
-The extension uses four routes Model Librarian (≥ 1.11.0) serves under `/sm-fetcher` (`smf/ext.py`, `smf/routes/ext_routes.py` in that repo):
+The extension uses these routes Model Librarian (≥ 1.11.0) serves under `/sm-fetcher` (`smf/ext.py`, `smf/routes/ext_routes.py` in that repo):
 
 | Route | Does |
 |---|---|
 | `GET /ext/hello` | `{app: "model-librarian", version, models_root, free_bytes, civitai_key, active_downloads, system}`; `system` (1.12.0+): `gpu, vram_total, capability, budget, fast {fp8, nvfp4, mxfp8, int8}, formats, loaders {gguf, nunchaku}` |
 | `POST /ext/lookup` | `{version_ids, hashes}` → which are already in the library (`have` / `downloading` / `missing`) |
 | `POST /ext/download` | `{version_id, file_id?, dry_run?}` → `started` (with the job), `have`, `downloading` or `planned` |
+| `POST /ext/companions` | `{base_model, file_name}` → `{family, source, companions: [{folder, name, url, have, alt}]}` from ComfyUI's workflow templates (1.13.0+) |
+| `POST /ext/companion-download` | `{base_model, file_name, name}` → one of those, downloaded (only listed files) |
 | `GET /ext/jobs?ids=` | Progress of those downloads |
 
 ## Running it

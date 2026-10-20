@@ -13,7 +13,7 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 
 <p align="center"><img src="docs/images/panel-best.png" width="370" alt="The panel on a CivitAI model page, suggesting the best file for an RTX 4070"></p>
 
-> **⚠ Needs Model Librarian 1.11.0 or newer** (1.12.0 for the best-file suggestions) in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
+> **⚠ Needs Model Librarian 1.11.0 or newer** (1.12.0 for the best-file suggestions, 1.13.0 for the text encoder and VAE) in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
 
 ## ✨ Key Features
 
@@ -21,6 +21,7 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 - ★ **Best file for your PC** — rates every file against your GPU, its VRAM and the formats your ComfyUI runs at full speed (FP8, NVFP4, INT8/INT4, GGUF), marks the best one and says why the others are slower.
 - 🗂️ **Lands in the right place** — checkpoints, LoRAs, embeddings, VAEs, ControlNets, upscalers and more go to their ComfyUI folders, sorted by base model like Model Librarian's Organize.
 - ⏳ **Queue while ComfyUI is closed** — clicks are kept in the extension and sent the moment ComfyUI is reachable (checked every 30 seconds and whenever a ComfyUI tab opens).
+- 🧩 **Everything it needs** — a diffusion model also needs its text encoder and VAE: the panel lists them from ComfyUI's own workflow templates (official links), marks the ones you have, and downloads the rest.
 - ✅ **Knows what you have** — files already in your library show **✓ In your library** (by version or by SHA256 under any name), and nothing is downloaded twice.
 - 📊 **Progress in the toolbar** — the popup lists every download with progress and speed, and the icon counts what's left.
 - 🖥️ **Works with Comfy Desktop** — talks to ComfyUI directly, so no ComfyUI browser tab is needed; a ComfyUI on another PC (e.g. over Tailscale) works too.
@@ -79,6 +80,18 @@ Model Librarian reports what decides it: the GPU and its VRAM (minus the headroo
 - **✗** can't load here (e.g. a GGUF file without ComfyUI-GGUF).
 
 The **★ Best for your GPU** pick is the file with the most precision that still fits and runs fast; among equals, the newest version. Text encoders and VAEs are never picked. In the version list, ★ marks the pick and ✓ / ◐ / ✗ the best file of each version.
+</details>
+
+<details>
+<summary><b>🧩 Text encoders and VAEs</b></summary>
+
+A "Diffusion Model" file (or a GGUF) is only the core of the model: ComfyUI also loads a text encoder and a VAE for it. Model Librarian reads ComfyUI's own workflow templates, which list the files each official workflow loads with their folder and download link, picks the templates of the model's base family (Krea 2, Flux, Wan, Qwen, Z-Image, ...) and among those the one whose model file is most like yours, and shows its text encoders and VAE under **Also needs**:
+
+- **✓ In your library** when you have the file, in any subfolder;
+- **≈ you have …** when you have the same encoder in another precision (e.g. `t5xxl_fp8` instead of `t5xxl_fp16`);
+- **Download** otherwise (or **Get N** for all of them): Model Librarian downloads from the template's official link, with the SHA256 from HuggingFace.
+
+Only files on that list can be downloaded this way, and nothing is suggested for families without a template (all-in-one checkpoints like SDXL already include theirs).
 </details>
 
 <details>

@@ -93,3 +93,15 @@ test("a file's state on the model page: the queue, then the library", () => {
   ({ queue } = Q.enqueue(queue, item(13, null)));
   assert.equal(Q.fileState(queue, 13, 301, true, null).status, "queued", "a primary-file click covers the primary file");
 });
+
+test("companions (a text encoder or VAE a model needs) queue under their own key", () => {
+  const c = { kind: "companion", name: "qwen_image_vae.safetensors", folder: "vae", baseModel: "Krea 2 Turbo", forFile: "muse_v40INT4.safetensors", title: "VAE for Krea 2" };
+  let { queue, item } = Q.enqueue([], c);
+  assert.equal(item.key, "c:qwen_image_vae.safetensors");
+  assert.equal(item.versionId, null);
+  assert.equal(item.kind, "companion");
+  assert.equal(item.folder, "vae");
+  assert.equal(Q.enqueue(queue, { ...c, name: "QWEN_IMAGE_VAE.safetensors" }).added, false, "same file, any case: once");
+  queue = Q.applySend(queue, item.key, { status: "started", job: { id: "j9" } });
+  assert.equal(queue[0].status, "downloading");
+});

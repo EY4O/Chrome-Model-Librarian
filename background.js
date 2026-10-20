@@ -80,7 +80,9 @@ async function pumpOnce() {
   for (const item of Q.pending(queue)) {
     let res;
     try {
-      res = await comfy.api(conn.base, "/ext/download", { method: "POST", body: { version_id: item.versionId, file_id: item.fileId } });
+      res = item.kind === "companion"
+        ? await comfy.api(conn.base, "/ext/companion-download", { method: "POST", body: { base_model: item.baseModel, file_name: item.forFile, name: item.name } })
+        : await comfy.api(conn.base, "/ext/download", { method: "POST", body: { version_id: item.versionId, file_id: item.fileId } });
     } catch (e) {
       if (e.status === 0) return; // ComfyUI went away: the item stays queued
       res = { error: e.message, transient: e.status === 502 || e.status === 409 };
@@ -126,11 +128,23 @@ async function modelInfo(page) {
     needsUpdate: !!conn.ok && !sys };
 }
 
+// What a diffusion model also needs (text encoders, VAE), from ComfyUI's own workflow templates (Model Librarian 1.13.0+).
+async function companions(baseModel, fileName) {
+  const { conn } = await load();
+  if (!conn.ok) return { companions: [], offline: true };
+  try {
+    return await comfy.api(conn.base, "/ext/companions", { method: "POST", body: { base_model: baseModel, file_name: fileName } });
+  } catch (e) {
+    return { companions: [], error: e.status === 404 || e.status === 405 ? "update" : e.message };
+  }
+}
+
 // ---------------------------------------------------------------- messages from the page and the popup
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   (async () => {
     switch (msg && msg.type) {
       case "model": return modelInfo(msg.page);
+      case "companions": return companions(msg.baseModel, msg.fileName);
       case "enqueue": {
         const out = await withQueue((q) => Q.enqueue(q, msg.item));
         pump();
