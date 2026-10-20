@@ -6,6 +6,7 @@
 |---|---|
 | `manifest.json` | Manifest V3. Bump `version` on every change. |
 | `background.js` | Service worker: the queue, finding ComfyUI, sending downloads, following progress, the `Origin` header rule. |
+| `content/sites.js` | The panel on HuggingFace file pages and CivArchive pages. |
 | `content/civitai.js` | The panel on CivitAI model pages (self-contained: content scripts can't import modules; lives in a shadow root). |
 | `popup.html/js/css` | Toolbar popup: connection, queue, ComfyUI address. |
 | `lib/queue.js` | The queue as pure functions (tested). |
@@ -16,15 +17,18 @@
 
 ## Model Librarian's side
 
-The extension uses these routes Model Librarian (≥ 1.11.0) serves under `/sm-fetcher` (`smf/ext.py`, `smf/routes/ext_routes.py` in that repo):
+Besides the Recipes routes (`/recipe/analyze`, `/recipes`) and `/download`, the extension uses these routes Model Librarian (≥ 1.11.0) serves under `/sm-fetcher` (`smf/ext.py`, `smf/routes/ext_routes.py` in that repo):
 
 | Route | Does |
 |---|---|
 | `GET /ext/hello` | `{app: "model-librarian", version, models_root, free_bytes, civitai_key, active_downloads, system}`; `system` (1.12.0+): `gpu, vram_total, capability, budget, fast {fp8, nvfp4, mxfp8, int8}, formats, loaders {gguf, nunchaku}` |
-| `POST /ext/lookup` | `{version_ids, hashes}` → which are already in the library (`have` / `downloading` / `missing`) |
+| `POST /ext/lookup` | `{version_ids, hashes, model_ids}` → which are already in the library (`have` / `downloading` / `missing`; models: `have` / `update`) |
 | `POST /ext/download` | `{version_id, file_id?, dry_run?}` → `started` (with the job), `have`, `downloading` or `planned` |
 | `POST /ext/companions` | `{base_model, file_name}` → `{family, source, companions: [{folder, name, url, have, alt}]}` from ComfyUI's workflow templates (1.13.0+) |
 | `POST /ext/companion-download` | `{base_model, file_name, name}` → one of those, downloaded (only listed files) |
+| `GET /ext/model?id=` | A CivitAI model's versions and files (1.14.0+) |
+| `POST /ext/civarchive` | `{sha256}` → yours, or CivArchive's live copies planned into a folder (1.15.0+) |
+| `POST /ext/download-url` | `{url, folder, dry_run?}` → a HuggingFace file into the folder picked (1.15.0+) |
 | `GET /ext/jobs?ids=` | Progress of those downloads |
 
 ## Running it

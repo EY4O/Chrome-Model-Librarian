@@ -47,6 +47,16 @@
     .needs .row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
     .needs .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .needs .h { font-size: 12px; font-weight: 600; }
+    .item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #2c2f37; border-radius: 9px; background: #191a20; }
+    .item .meta { flex: 1; min-width: 0; }
+    .kind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #9a9aa3; letter-spacing: .4px; }
+    .prompt { font-size: 12px; color: #c9c9cf; max-height: 54px; overflow: hidden; }
+    .acts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .choices button { padding: 0; border: 1px solid #2c2f37; border-radius: 7px; background: #111; cursor: pointer; aspect-ratio: 1; overflow: hidden; position: relative; }
+    .choices img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .choices .nometa { position: absolute; inset: auto 0 0 0; font-size: 9.5px; background: rgba(0,0,0,.7); color: #e3b341; }
+    .thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 7px; flex: none; }
     .rec button { margin-left: auto; flex: none; border: 0; border-radius: 7px; padding: 4px 9px; background: #2f7cf6; color: #fff; font: 600 11.5px system-ui, sans-serif; cursor: pointer; }
   `;
 
@@ -84,13 +94,96 @@
     catch (e) { res({ error: String(e.message || e) }); } // the extension was reloaded: this page needs a refresh
   });
 
-  const s = { page: null, key: null, open: false, info: null, error: null, versionId: null, queue: [], conn: { ok: false }, needs: {} };
+  const s = { page: null, key: null, open: false, info: null, error: null, versionId: null, queue: [], conn: { ok: false }, needs: {},
+    recipe: null, imageUrl: null, saved: false, prompto: null, withNeeds: true, later: [], collected: null };
 
   function page() {
+    const host = location.hostname.replace(/^www\./, "");
+    const col = location.pathname.match(/^\/collections\/(\d+)/);
+    if (col) return { kind: "collection", host, id: Number(col[1]), url: `https://${host}/collections/${col[1]}` };
+    const im = location.pathname.match(/^\/(images|posts)\/(\d+)/);
+    if (im) return { kind: im[1] === "images" ? "image" : "post", host, id: Number(im[2]), url: `https://${host}/${im[1]}/${im[2]}` };
     const m = location.pathname.match(/^\/models\/(\d+)/);
     if (!m) return null;
     const v = new URLSearchParams(location.search).get("modelVersionId");
-    return { host: location.hostname.replace(/^www\./, ""), modelId: Number(m[1]), versionId: v && /^\d+$/.test(v) ? Number(v) : null };
+    return { kind: "model", host, modelId: Number(m[1]), versionId: v && /^\d+$/.test(v) ? Number(v) : null };
+  }
+
+  // ---------------------------------------------------------------- an image or post: every model it used
+  async function loadRecipe(url) {
+    const p = s.page;
+    Object.assign(s, { recipe: null, error: null, saved: false, imageUrl: url });
+    render();
+    const r = await send({ type: "recipe", url });
+    if (s.page !== p) return;
+    if (r && (r.recipe || r.choices)) s.recipe = r;
+    else s.error = (r && r.error) || "Couldn't read this image's generation data";
+    if (s.prompto === null) send({ type: "promptoStatus" }).then((x) => { s.prompto = !!(x && x.recipe); render(); });
+    render();
+  }
+
+  const KINDS = { checkpoint: "Checkpoint", lora: "LoRA", vae: "VAE", embedding: "Embedding", unet: "Diffusion model", upscaler: "Upscaler" };
+  const planKey = (d) => `p:${d.folder}/${d.rel}`.toLowerCase();
+  const itemState = (it) => (it.download ? s.queue.find((x) => x.key === planKey(it.download)) : null);
+
+  function getItem(it) {
+    return send({ type: "enqueue", item: { kind: "plan", download: it.download, title: `${KINDS[it.kind] || it.kind}: ${it.name}${it.version ? ` (${it.version})` : ""}`,
+      file: it.download.rel.split("/").pop(), size: it.download.size || null, pageUrl: it.page_url || it.download.page_url || "" } });
+  }
+
+  function recipeRow(it) {
+    const q = itemState(it);
+    let right;
+    if (it.status === "present" || (q && ["done", "have"].includes(q.status))) right = h("span", { class: "state ok", title: it.local || "" }, "✓ In your library");
+    else if (q && q.status === "downloading") right = h("span", { class: "state" }, q.total ? `${Math.floor((100 * q.done) / q.total)}%` : "Starting…");
+    else if (q && q.status === "queued") right = h("span", { class: "state q" }, s.conn.ok ? "Sending…" : "Queued");
+    else if (q && q.status === "error") right = h("button", { class: "dl ghost", title: q.error || "", onclick: () => send({ type: "retry", key: q.key }) }, "Retry");
+    else if (it.download) right = h("button", { class: "dl", onclick: () => getItem(it) }, "Download");
+    else right = h("span", { class: "state dim", title: it.note || "" }, "Not available");
+    return h("div", { class: "item" },
+      h("div", { class: "meta" },
+        h("div", { class: "kind" }, KINDS[it.kind] || it.kind, it.weight != null && it.kind === "lora" ? ` · ${it.weight}` : ""),
+        h("div", { class: "fn", title: it.name }, it.name, it.version ? h("span", { class: "dim" }, ` · ${it.version}`) : null),
+        it.download ? h("div", { class: "dim" }, [`${it.download.folder}/${it.download.rel}`, fmtSize(it.download.size)].filter(Boolean).join(" · ")) : null,
+        it.note ? h("div", { class: it.status === "unavailable" ? "warn" : "dim" }, it.note) : null,
+        q && q.status === "error" ? h("div", { class: "err" }, q.error) : null),
+      right);
+  }
+
+  function recipeBody(body) {
+    if (s.error && !s.recipe) return body.append(h("div", { class: "err" }, s.error),
+      s.page.kind === "post" && s.imageUrl !== s.page.url ? h("button", { class: "dl ghost", onclick: () => loadRecipe(s.page.url) }, "Back to the post's images") : null);
+    if (!s.recipe) return body.append(h("div", { class: "dim" }, s.conn.ok ? "Reading the image's generation data…" : (s.conn.error || "ComfyUI isn't running") + ". Model Librarian reads the image when it is."));
+    const r = s.recipe;
+    if (r.choices) {
+      return body.append(h("div", { class: "name" }, "Which image?"), h("div", { class: "dim" }, "Pick one to see the models it used."),
+        h("div", { class: "choices" }, r.choices.slice(0, 24).map((c) => h("button", { title: c.has_meta ? "" : "No generation data", onclick: () => loadRecipe(c.url) },
+          c.thumb ? h("img", { src: c.thumb, alt: "" }) : "?", c.has_meta ? null : h("span", { class: "nometa" }, "no data")))));
+    }
+    const rec = r.recipe || {};
+    const items = r.items || [];
+    const missing = items.filter((it) => it.status !== "present" && it.download && !itemState(it));
+    body.append(h("div", { class: "row", style: "display:flex;gap:8px;align-items:center" },
+      r.thumb ? h("img", { class: "thumb", src: r.thumb, alt: "" }) : null,
+      h("div", { style: "min-width:0" }, h("div", { class: "name" }, rec.title || "This image's recipe"),
+        h("div", { class: "prompt", title: (rec.prompt && rec.prompt.positive) || "" }, (rec.prompt && rec.prompt.positive) || "(no prompt)"))));
+    if (!items.length) body.append(h("div", { class: "dim" }, "No models are named in its generation data."));
+    body.append(...items.map(recipeRow));
+    body.append(h("div", { class: "acts" },
+      missing.length ? h("button", { class: "dl", onclick: () => missing.forEach(getItem) }, `Get ${missing.length === 1 ? "the missing model" : `all ${missing.length} missing`}`) : null,
+      h("button", { class: "dl ghost", disabled: s.saved, onclick: async () => {
+        const x = await send({ type: "saveRecipe", recipe: rec, thumb: r.thumb || null });
+        if (x && x.error) s.error = x.error; else s.saved = true;
+        render();
+      } }, s.saved ? "✓ Saved in Recipes" : "Save as recipe"),
+      s.prompto ? h("button", { class: "dl ghost", onclick: async (ev) => {
+        const { comfy, ...plain } = rec;
+        const x = await send({ type: "prompto", recipe: plain, thumb: r.thumb || null });
+        if (x && x.error) { s.error = x.error; render(); } else ev.target.textContent = "✓ Sent to Prompto";
+      } }, "Send to Prompto") : null,
+      s.page.kind === "post" ? h("button", { class: "dl ghost", onclick: () => loadRecipe(s.page.url) }, "Other images") : null));
+    if (s.error) body.append(h("div", { class: "err" }, s.error));
+    if (!s.conn.ok) body.append(h("div", { class: "dim" }, "Downloads wait in the extension and start when ComfyUI is running."));
   }
 
   async function loadModel() {
@@ -125,7 +218,21 @@
       versionId: v.id, fileId: f.id, title: `${m.name} — ${v.name}`, file: f.name, size: f.size,
       pageUrl: `https://${s.page.host}/models/${m.id}?modelVersionId=${v.id}`,
     } });
-    if (r && r.error) { s.error = r.error; render(); }
+    if (r && r.error) { s.error = r.error; render(); return; }
+    // the text encoder and VAE it needs, with it (unless switched off, or you have them in some precision)
+    const main = mainFile(v);
+    if (s.withNeeds && main && main.id === f.id) {
+      const n = s.needs[`${v.baseModel}|${f.name}`];
+      for (const c of missingNeeds(n && n.companions)) getCompanion(v, f, c);
+    }
+  }
+
+  const missingNeeds = (list) => (list || []).filter((c) => !c.have && !c.alt && !s.queue.some((x) => x.key === `c:${c.name.toLowerCase()}`));
+
+  function setWithNeeds(on) {
+    s.withNeeds = on;
+    send({ type: "settings", withNeeds: on });
+    render();
   }
 
   function fileRow(v, f) {
@@ -190,12 +297,15 @@
           c.alt && !c.have ? h("div", { class: "dim" }, `≈ you have ${c.alt.split(/[\\/]/).pop()} (other precision)`) : null),
         right);
     });
-    const missing = list.filter((c) => !c.have && !s.queue.some((x) => x.key === `c:${c.name.toLowerCase()}`));
+    const missing = missingNeeds(list);
     return h("div", { class: "needs" },
       h("div", { class: "row" }, h("span", { class: "h" }, "Also needs"),
         h("span", { class: "dim", style: "flex:1" }, `from ComfyUI's ${n.data.family || ""} template`),
         missing.length > 1 ? h("button", { class: "dl ghost", onclick: () => missing.forEach((c) => getCompanion(v, n.file, c)) }, `Get ${missing.length}`) : null),
-      ...rows);
+      ...rows,
+      missing.length ? h("label", { class: "row dim", style: "cursor:pointer;gap:6px" },
+        h("input", { type: "checkbox", checked: s.withNeeds, onchange: (e) => setWithNeeds(e.target.checked) }),
+        "Get the missing ones when I download the model") : null);
   }
 
   async function getCompanion(v, f, c) {
@@ -224,12 +334,17 @@
     if (!s.page) return void host.remove();
     if (!host.isConnected) document.documentElement.append(host);
     const dot = h("span", { class: "dot " + (s.conn.ok ? "ok" : "wait"), title: s.conn.ok ? `ComfyUI at ${s.conn.base}` : (s.conn.error || "ComfyUI isn't running") });
+    const isModel = s.page.kind === "model";
+    const isCollection = s.page.kind === "collection";
     if (!s.open) {
-      wrap.append(h("button", { class: "pill", onclick: () => { s.open = true; render(); } }, h("img", { src: ICON, alt: "" }), "Download with Model Librarian", dot));
+      wrap.append(h("button", { class: "pill", onclick: () => { s.open = true; if (!isModel && !isCollection && !s.recipe && !s.error) loadRecipe(s.imageUrl || s.page.url); render(); } },
+        h("img", { src: ICON, alt: "" }), isModel ? "Download with Model Librarian" : isCollection ? "Get this collection with Model Librarian" : "Get its models with Model Librarian", dot));
       return;
     }
     const body = h("div", { class: "body" });
-    if (s.error && !s.info) body.append(h("div", { class: "err" }, s.error));
+    if (isCollection) collectionBody(body);
+    else if (!isModel) recipeBody(body);
+    else if (s.error && !s.info) body.append(h("div", { class: "err" }, s.error));
     else if (!s.info) body.append(h("div", { class: "dim" }, "Reading the model…"));
     else {
       const m = s.info.model;
@@ -263,19 +378,25 @@
       if (s.error) body.append(h("div", { class: "err" }, s.error));
     }
     wrap.append(h("div", { class: "panel" },
-      h("div", { class: "head" }, h("img", { src: ICON, alt: "" }), "Model Librarian", dot,
-        h("button", { class: "x", title: "Close", onclick: () => { s.open = false; render(); } }, "×")),
+      h("div", { class: "head" }, h("img", { src: ICON, alt: "" }), "Model Librarian", dot, isModel ? laterButton() : null,
+        h("button", { class: "x", style: isModel ? "margin-left:4px" : "", title: "Close", onclick: () => { s.open = false; render(); } }, "×")),
       body));
   }
 
   function sync() {
     const p = page();
-    const key = p ? `${p.host}/${p.modelId}/${p.versionId || ""}` : null;
+    const key = !p ? null : p.kind === "model" ? `${p.host}/${p.modelId}/${p.versionId || ""}` : `${p.kind}/${p.id}`;
     if (key === s.key) return;
-    const sameModel = p && s.page && p.modelId === s.page.modelId;
+    const sameModel = p && s.page && p.kind === "model" && s.page.kind === "model" && p.modelId === s.page.modelId;
     s.key = key;
     s.page = p;
     if (!p) return render();
+    if (p.kind === "collection") { s.collected = null; return render(); }
+    if (p.kind !== "model") { // read when the panel is opened (it asks Model Librarian, which asks CivitAI)
+      Object.assign(s, { recipe: null, error: null, saved: false, imageUrl: p.url });
+      if (s.open) loadRecipe(p.url);
+      return render();
+    }
     if (sameModel && s.info) { // another version of the same model: no new lookup
       if (s.info.model.versions.some((v) => v.id === p.versionId)) s.versionId = p.versionId;
       return render();
@@ -283,17 +404,108 @@
     loadModel();
   }
 
-  chrome.storage.local.get({ queue: [], conn: { ok: false } }, (st) => { s.queue = st.queue; s.conn = st.conn; render(); });
+  chrome.storage.local.get({ queue: [], conn: { ok: false }, settings: {}, saved: [] }, (st) => {
+    Object.assign(s, { queue: st.queue, conn: st.conn, withNeeds: st.settings.withNeeds !== false, later: st.saved });
+    render();
+  });
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== "local") return;
     if (ch.queue) s.queue = ch.queue.newValue || [];
+    if (ch.saved) s.later = ch.saved.newValue || [];
+    if (ch.settings) s.withNeeds = (ch.settings.newValue || {}).withNeeds !== false;
     if (ch.conn) {
       const was = s.conn.ok;
       s.conn = ch.conn.newValue || { ok: false };
-      if (!was && s.conn.ok && s.page && s.info) { s.needs = {}; loadModel(); } // connected now: library status, fit, companions
+      if (!was && s.conn.ok && s.page && s.page.kind === "model" && s.info) { s.needs = {}; loadModel(); } // connected now: library status, fit, companions
+      if (!was && s.conn.ok && s.page && s.page.kind !== "model" && s.open && !s.recipe) loadRecipe(s.imageUrl || s.page.url);
     }
     render();
   });
+  // ---------------------------------------------------------------- a collection: every model on the page
+  function cardsOnPage() {
+    const seen = new Map();
+    for (const a of document.querySelectorAll('a[href*="/models/"]')) {
+      if (!a.querySelector("img, video") || a.closest("#model-librarian-ext")) continue;
+      const m = a.getAttribute("href").match(/\/models\/(\d+)/);
+      if (!m || seen.has(m[1])) continue;
+      const name = (a.getAttribute("aria-label") || a.querySelector("img")?.alt || a.textContent || "").trim().replace(/\s+/g, " ").slice(0, 70);
+      seen.set(m[1], name || `Model ${m[1]}`);
+    }
+    return [...seen];
+  }
+
+  function collectionBody(body) {
+    const cards = cardsOnPage();
+    const missing = cards.filter(([id]) => { const st = known.get(id); return !st || st.status === "missing"; });
+    body.append(h("div", { class: "name" }, "This collection"),
+      h("div", { class: "dim" }, `${cards.length} model${cards.length === 1 ? "" : "s"} on the page${missing.length ? `, ${missing.length} not in your library` : ""}. Scroll to load more first: only the ones shown count.`));
+    if (missing.length) {
+      body.append(h("button", { class: "dl", disabled: s.collected === "working", onclick: async () => {
+        s.collected = "working";
+        render();
+        const r = await send({ type: "getModels", host: s.page.host, modelIds: missing.map(([id]) => id) });
+        s.collected = (r && r.results) || [];
+        render();
+      } }, s.collected === "working" ? "Queueing…" : `Get all ${missing.length} missing (best file for your PC)`));
+    }
+    if (Array.isArray(s.collected)) {
+      const q = s.collected.filter((x) => x.queued).length, have = s.collected.filter((x) => x.have).length;
+      const skipped = s.collected.filter((x) => x.skip || x.error);
+      body.append(h("div", { class: "dim" }, `${q} queued${have ? `, ${have} already yours` : ""}${skipped.length ? `, ${skipped.length} skipped` : ""}. Progress is in the toolbar popup.`),
+        ...skipped.slice(0, 6).map((x) => h("div", { class: "warn" }, `${x.name || `Model ${x.id}`}: ${x.skip || x.error}`)));
+    }
+    body.append(...cards.slice(0, 40).map(([id, name]) => {
+      const st = known.get(id);
+      return h("div", { class: "item" }, h("div", { class: "meta" }, h("div", { class: "fn", title: name }, name)),
+        h("span", { class: "state " + (st && st.status !== "missing" ? "ok" : "dim") }, !st ? "…" : st.status === "have" ? "✓ Have" : st.status === "update" ? "↑ Update" : ""));
+    }));
+  }
+
+  // ---------------------------------------------------------------- save for later
+  function laterButton() {
+    const m = s.info && s.info.model;
+    if (!m) return null;
+    const on = s.later.some((x) => x.modelId === m.id);
+    return h("button", { class: "x", style: "margin-left:auto;font-size:15px", title: on ? "Saved for later (click to remove)" : "Save for later",
+      onclick: () => send({ type: "saveForLater", remove: on, entry: { modelId: m.id, name: m.name, type: m.type, url: `https://${s.page.host}/models/${m.id}` } }) }, on ? "★" : "☆");
+  }
+
+  // ---------------------------------------------------------------- badges on CivitAI's model cards
+  // A small "✓ Have" / "↑ Update" on every card linking to a model you have (by model id, from Model Librarian).
+  const known = new Map();
+  let asking = false;
+  async function badges() {
+    if (!s.conn.ok || asking) return;
+    const cards = [...document.querySelectorAll('a[href*="/models/"]')].filter((a) => a.querySelector("img, video") && !a.closest("#model-librarian-ext"));
+    const idOf = (a) => { const m = a.getAttribute("href").match(/\/models\/(\d+)/); return m ? m[1] : null; };
+    const fresh = [...new Set(cards.map(idOf).filter((id) => id && !known.has(id)))];
+    if (fresh.length) {
+      asking = true;
+      const r = await send({ type: "badges", modelIds: fresh.slice(0, 100) });
+      asking = false;
+      for (const id of fresh.slice(0, 100)) known.set(id, (r && r[id]) || { status: "missing" });
+      if (s.open && s.page && s.page.kind === "collection") render();
+    }
+    for (const a of cards) {
+      const st = known.get(idOf(a));
+      const old = a.querySelector(":scope > .ml-badge");
+      const want = st && (st.status === "have" || st.status === "update") ? st.status : null;
+      if (!want) { if (old) old.remove(); continue; }
+      if (old && old.dataset.s === want) continue;
+      if (old) old.remove();
+      if (getComputedStyle(a).position === "static") a.style.position = "relative";
+      const b = document.createElement("span");
+      b.className = "ml-badge";
+      b.dataset.s = want;
+      b.textContent = want === "have" ? "✓ Have" : "↑ Update";
+      b.title = want === "have" ? `In your library (Model Librarian)${st.files > 1 ? `: ${st.files} files` : ""}` : `You have it; ${st.update ? st.update.name : "a newer version"} is out`;
+      b.style.cssText = "position:absolute;top:8px;left:8px;z-index:20;pointer-events:none;padding:2px 7px;border-radius:999px;font:700 11px/16px system-ui,sans-serif;"
+        + (want === "have" ? "background:rgba(22,101,52,.92);color:#dcfce7;" : "background:rgba(47,124,246,.95);color:#fff;");
+      a.append(b);
+    }
+  }
+  setInterval(badges, 1500);
+
   sync();
   // pushState from the page's own scripts isn't visible here, so watch the address.
   if (window.navigation) navigation.addEventListener("navigatesuccess", () => setTimeout(sync, 50));

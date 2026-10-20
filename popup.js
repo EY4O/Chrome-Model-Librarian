@@ -39,7 +39,9 @@ function render({ queue, conn, settings }) {
     : h("div", null, h("span", { class: "warn" }, "● "), conn.error || "Looking for ComfyUI…",
         h("div", { class: "dim" }, "Downloads you click wait here and start as soon as ComfyUI is running with Model Librarian."),
         h("div", { class: "row", style: "margin-top:6px" }, h("button", { class: "small ghost", onclick: check }, "Check now"))));
-  if (document.activeElement !== $("base")) $("base").value = settings.base || "";
+  $("notify").checked = settings.notify !== false;
+  $("withNeeds").checked = settings.withNeeds !== false;
+  drawTargets(settings);
   const list = [...queue].sort((a, b) => b.added - a.added);
   $("clear").hidden = !queue.some((x) => ["done", "have", "cancelled"].includes(x.status));
   $("queue").replaceChildren(...(list.length ? list.map((x) => item(x, conn)) : [h("div", { class: "empty" }, "Nothing yet. Open a model on CivitAI and press Download with Model Librarian.")]));
@@ -58,7 +60,32 @@ function item(x, conn) {
     x.dest && ["done", "have", "downloading"].includes(x.status) ? h("code", null, x.dest) : null);
 }
 
-async function refresh() { render(await send({ type: "state" })); }
+// The ComfyUIs to choose from: "find it", what's answering on the usual ports, and saved addresses.
+let found = [];
+function drawTargets(settings) {
+  const radio = (value, label, note, forget) => h("label", null,
+    h("input", { type: "radio", name: "target", checked: (settings.base || "") === value, onchange: () => send({ type: "settings", base: value }).then(render) }),
+    label, note ? h("span", { class: "dim" }, note) : null,
+    forget ? h("button", { class: "link", title: "Forget this address", onclick: (e) => { e.preventDefault(); send({ type: "settings", forget: value }).then(render); } }, "×") : null);
+  const bases = [...new Set([...found.filter((f) => f.ok).map((f) => f.base), ...(settings.saved || [])])];
+  $("targets").replaceChildren(radio("", "Find it", "first one answering"),
+    ...bases.map((b) => {
+      const f = found.find((x) => x.base === b);
+      return radio(b, b.replace(/^https?:\/\//, ""), f ? (f.ok ? `Model Librarian ${f.version}` : "not answering") : "", (settings.saved || []).includes(b));
+    }));
+}
+async function scan() { found = await send({ type: "scan" }); refresh(); }
+
+async function drawLater() {
+  const { saved = [] } = await chrome.storage.local.get({ saved: [] });
+  $("later").hidden = !saved.length;
+  $("laterList").replaceChildren(...saved.map((x) => h("div", { class: "row" },
+    h("a", { href: x.url, target: "_blank", style: "color:inherit;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, x.name),
+    h("span", { class: "dim" }, x.type || ""),
+    h("button", { class: "link", title: "Remove", onclick: () => send({ type: "saveForLater", remove: true, entry: x }).then(drawLater) }, "×"))));
+}
+
+async function refresh() { render(await send({ type: "state" })); drawLater(); }
 async function check() { render(await send({ type: "pump" })); }
 
 $("clear").onclick = () => send({ type: "clear" }).then(refresh);
@@ -70,8 +97,13 @@ $("save").onclick = async () => {
     const ok = await chrome.permissions.request({ origins: [originPattern(base)] });
     if (!ok) return;
   }
+  $("base").value = "";
   render(await send({ type: "settings", base }));
+  scan();
 };
+$("notify").onchange = (e) => send({ type: "settings", notify: e.target.checked });
+$("withNeeds").onchange = (e) => send({ type: "settings", withNeeds: e.target.checked });
 chrome.storage.onChanged.addListener((_c, area) => { if (area === "local") refresh(); });
 refresh();
 check();
+scan();

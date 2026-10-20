@@ -20,13 +20,20 @@
     </div>
     <div id="queue"></div>
   </section>
+  <details id="later" hidden>
+    <summary>Saved for later</summary>
+    <div id="laterList" class="targets"></div>
+  </details>
   <details id="settings">
-    <summary>ComfyUI address</summary>
-    <div class="dim">Leave empty to find ComfyUI by itself (ports 8188, 8000 and 8189 on this PC). For another PC, e.g. over Tailscale, type its address.</div>
+    <summary>ComfyUI and settings</summary>
+    <div class="dim">Which ComfyUI gets the downloads. "Find it" tries ports 8188, 8000 and 8189 on this PC.</div>
+    <div id="targets" class="targets"></div>
     <div class="row">
-      <input id="base" placeholder="http://127.0.0.1:8188" spellcheck="false">
-      <button id="save" class="small">Save</button>
+      <input id="base" placeholder="Another address, e.g. http://100.64.0.2:8188" spellcheck="false">
+      <button id="save" class="small">Add</button>
     </div>
+    <label class="check"><input type="checkbox" id="notify"> Notify me when a download finishes or fails</label>
+    <label class="check"><input type="checkbox" id="withNeeds"> Get a model's missing text encoder and VAE with it</label>
   </details>
   <script type="module" src="popup.js"></script>
 </body>

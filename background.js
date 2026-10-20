@@ -10,9 +10,34 @@ import { assess, recommend, gpuName, needsTextEncoder, textEncoderOf } from "./l
 const RULE_ID = 1;
 
 // ---------------------------------------------------------------- storage
+const DEFAULT_SETTINGS = { base: "", saved: [], withNeeds: true, notify: true };
+
 async function load() {
-  const s = await chrome.storage.local.get({ queue: [], settings: { base: "" }, conn: { ok: false } });
-  return s;
+  const s = await chrome.storage.local.get({ queue: [], settings: {}, conn: { ok: false } });
+  return { ...s, settings: { ...DEFAULT_SETTINGS, ...s.settings } };
+}
+
+async function saveSettings(patch) {
+  const { settings } = await load();
+  await chrome.storage.local.set({ settings: { ...settings, ...patch } });
+}
+
+// A desktop notification when a download finishes or fails (Settings: on by default).
+async function notifyChanges(before, after) {
+  const { settings } = await load();
+  if (!settings.notify || !chrome.notifications) return;
+  const was = new Map(before.map((x) => [x.key, x.status]));
+  for (const x of after) {
+    const prev = was.get(x.key);
+    if (prev === x.status || !["done", "error"].includes(x.status) || !["downloading", "queued"].includes(prev)) continue;
+    chrome.notifications.create(`ml-${x.key}-${Date.now()}`, {
+      type: "basic", iconUrl: "icons/icon128.png",
+      title: x.status === "done" ? "Downloaded" : "Download failed",
+      message: `${x.title || x.file}${x.status === "error" && x.error ? `: ${x.error}` : x.dest ? `
+${x.dest}` : ""}`,
+      priority: x.status === "error" ? 1 : 0,
+    });
+  }
 }
 
 // Every change to the queue goes through here, one at a time (clicks, the pump and the popup race otherwise).
@@ -38,7 +63,14 @@ function updateBadge(queue) {
 }
 
 // ---------------------------------------------------------------- no Origin header on our own localhost requests
-async function setupRules() {
+// Requests to ComfyUI wait for this: without the rule, a local ComfyUI refuses them.
+let rulesReady = null;
+function setupRules() {
+  rulesReady = rulesReady || applyRules();
+  return rulesReady;
+}
+
+async function applyRules() {
   try {
     await chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds: [RULE_ID],
@@ -72,6 +104,7 @@ function pump() {
 }
 
 async function pumpOnce() {
+  await setupRules();
   const { settings, queue } = await load();
   const conn = await comfy.detect(settings.base);
   conn.checked = Date.now();
@@ -80,21 +113,26 @@ async function pumpOnce() {
   for (const item of Q.pending(queue)) {
     let res;
     try {
-      res = item.kind === "companion"
+      if (item.kind === "url") {
+        res = await comfy.api(conn.base, "/ext/download-url", { method: "POST", body: { url: item.url, folder: item.folder } });
+      } else if (item.kind === "plan") { // planned by Model Librarian's recipe reader: its regular download
+        const r = await comfy.api(conn.base, "/download", { method: "POST", body: { ...item.download, auto_place: item.download.folder === "checkpoints" } });
+        res = { status: "started", job: r.job, dest: r.job && r.job.dest };
+      } else res = item.kind === "companion"
         ? await comfy.api(conn.base, "/ext/companion-download", { method: "POST", body: { base_model: item.baseModel, file_name: item.forFile, name: item.name } })
         : await comfy.api(conn.base, "/ext/download", { method: "POST", body: { version_id: item.versionId, file_id: item.fileId } });
     } catch (e) {
       if (e.status === 0) return; // ComfyUI went away: the item stays queued
       res = { error: e.message, transient: e.status === 502 || e.status === 409 };
     }
-    await withQueue((q) => ({ queue: Q.applySend(q, item.key, res) }));
+    await withQueue(async (q) => { const next = Q.applySend(q, item.key, res); await notifyChanges(q, next); return { queue: next }; });
   }
   const { queue: now } = await chrome.storage.local.get({ queue: [] });
   const ids = Q.active(now).map((x) => x.jobId);
   if (ids.length) {
     try {
       const { jobs } = await comfy.api(conn.base, `/ext/jobs?ids=${ids.join(",")}`);
-      await withQueue((q) => ({ queue: Q.applyJobs(q, jobs) }));
+      await withQueue(async (q) => { const next = Q.applyJobs(q, jobs); await notifyChanges(q, next); return { queue: next }; });
     } catch {}
   }
   // while something is downloading, follow it closely (the 30 s alarm is the fallback)
@@ -150,12 +188,76 @@ async function companions(baseModel, fileName) {
   }
 }
 
+// Calls fn(base) with the connected ComfyUI, or says why it can't.
+async function withComfy(fn) {
+  await setupRules();
+  let { conn } = await load();
+  if (!conn.ok) { await pump(); ({ conn } = await load()); }
+  if (!conn.ok) return { error: conn.error || "ComfyUI isn't running" };
+  try { return await fn(conn.base); } catch (e) { return { error: e.message, status: e.status }; }
+}
+
+// Badges on CivitAI's model cards: have / update, by model id (remembered for two minutes).
+const badgeCache = new Map();
+async function badges(ids) {
+  const now = Date.now();
+  const want = [...new Set(ids.map(String))].filter((id) => !(badgeCache.get(id)?.at > now - 120000));
+  if (want.length) {
+    const r = await withComfy((base) => comfy.api(base, "/ext/lookup", { method: "POST", body: { model_ids: want } }));
+    if (r && r.models) for (const id of want) badgeCache.set(id, { at: now, v: r.models[id] || { status: "missing" } });
+  }
+  return Object.fromEntries(ids.map(String).filter((id) => badgeCache.has(id)).map((id) => [id, badgeCache.get(id).v]));
+}
+
+// The file to get for a model when there's no time to choose (a collection): the best for this PC,
+// else the newest version's primary file.
+async function bestFile(host, modelId) {
+  const info = await modelInfo({ host, modelId });
+  const m = info.model;
+  if (!m.downloadable) return { skip: `${m.type || "This"} isn't a model ComfyUI loads` };
+  const v = (info.rec && m.versions.find((x) => x.id === info.rec.versionId)) || m.versions.find((x) => x.files.length);
+  const f = v && ((info.rec && v.files.find((x) => x.id === info.rec.fileId)) || v.files.find((x) => x.primary) || v.files[0]);
+  if (!f) return { skip: "No file to download" };
+  if ((info.owned[String(v.id)] || {}).status === "have") return { have: true, name: m.name };
+  return { item: { versionId: v.id, fileId: f.id, title: `${m.name} — ${v.name}`, file: f.name, size: f.size,
+    pageUrl: `https://${host}/models/${m.id}?modelVersionId=${v.id}` }, name: m.name, best: !!info.rec };
+}
+
 // ---------------------------------------------------------------- messages from the page and the popup
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   (async () => {
     switch (msg && msg.type) {
       case "model": return modelInfo(msg.page);
       case "companions": return companions(msg.baseModel, msg.fileName);
+      case "recipe": return withComfy((base) => comfy.api(base, "/recipe/analyze", { method: "POST", body: { url: msg.url }, timeout: 60000 }));
+      case "saveRecipe": return withComfy((base) => comfy.api(base, "/recipes", { method: "POST", body: { recipe: msg.recipe, thumb: msg.thumb } }));
+      case "promptoStatus": return withComfy(async (base) => {
+        const st = await comfy.api(base, "/prompto/status", { raw: true }).catch(() => null);
+        return { recipe: !!(st && Array.isArray(st.capture_kinds) && st.capture_kinds.includes("recipe")) };
+      });
+      case "prompto": return withComfy((base) => comfy.api(base, "/prompto/captures", { raw: true, method: "POST",
+        body: { kind: "recipe", source: "Model Librarian for Chrome", title: msg.recipe.title || "Recipe", recipe: msg.recipe, thumb: msg.thumb } }));
+      case "badges": return badges(msg.modelIds || []);
+      case "getModels": { // a collection: each model's best file, queued
+        const out = [];
+        for (const id of (msg.modelIds || []).slice(0, 100)) {
+          try {
+            const r = await bestFile(msg.host, id);
+            if (r.item) { const q = await withQueue((qq) => Q.enqueue(qq, r.item)); out.push({ id, queued: q.added, name: r.name }); }
+            else out.push({ id, ...r });
+          } catch (e) { out.push({ id, error: e.message }); }
+        }
+        pump();
+        return { results: out };
+      }
+      case "saveForLater": {
+        const { saved = [] } = await chrome.storage.local.get({ saved: [] });
+        const rest = saved.filter((x) => x.modelId !== msg.entry.modelId);
+        await chrome.storage.local.set({ saved: msg.remove ? rest : [{ ...msg.entry, added: Date.now() }, ...rest].slice(0, 200) });
+        return { ok: true };
+      }
+      case "urlPlan": return withComfy((base) => comfy.api(base, "/ext/download-url", { method: "POST", body: { url: msg.url, folder: msg.folder, dry_run: true } }));
+      case "civarchive": return withComfy((base) => comfy.api(base, "/ext/civarchive", { method: "POST", body: { sha256: msg.sha256 }, timeout: 45000 }));
       case "enqueue": {
         const out = await withQueue((q) => Q.enqueue(q, msg.item));
         pump();
@@ -165,11 +267,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       case "retry": await withQueue((q) => ({ queue: Q.retry(q, msg.key) })); pump(); return { ok: true };
       case "remove": await withQueue((q) => ({ queue: Q.remove(q, msg.key) })); return { ok: true };
       case "clear": await withQueue((q) => ({ queue: Q.clearFinished(q) })); return { ok: true };
-      case "settings": {
-        const base = msg.base ? comfy.normalizeBase(msg.base) : "";
-        await chrome.storage.local.set({ settings: { base } });
+      case "settings": { // any of base ("" = find it), saved, notify, withNeeds
+        const patch = { ...msg };
+        delete patch.type;
+        if ("base" in patch) {
+          patch.base = patch.base ? comfy.normalizeBase(patch.base) : "";
+          const { settings } = await load();
+          if (patch.base && !settings.saved.includes(patch.base)) patch.saved = [...settings.saved, patch.base];
+        }
+        if (patch.forget) {
+          const { settings } = await load();
+          patch.saved = settings.saved.filter((b) => b !== patch.forget);
+          if (settings.base === patch.forget) patch.base = "";
+          delete patch.forget;
+        }
+        await saveSettings(patch);
         await pump();
         return load();
+      }
+      case "scan": {
+        await setupRules();
+        const { settings } = await load();
+        return comfy.detectAll(settings.saved);
       }
       case "pump": await pump(); return load();
       default: return { error: "unknown message" };

@@ -13,19 +13,19 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 
 <p align="center"><img src="docs/images/panel-best.png" width="370" alt="The panel on a CivitAI model page, suggesting the best file for an RTX 4070"></p>
 
-> **⚠ Needs Model Librarian 1.11.0 or newer** (1.12.0 for the best-file suggestions, 1.13.0 for the text encoder and VAE) in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
+> **⚠ Needs Model Librarian 1.11.0 or newer**; 1.15.0 for everything here (image pages, badges, HuggingFace and CivArchive). in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
 
 ## ✨ Key Features
 
-- ⬇️ **One click per file** — every version and file of a model (full, pruned, fp16, a bundled VAE), with sizes.
-- ★ **Best file for your PC** — rates every file against your GPU, its VRAM and the formats your ComfyUI runs at full speed (FP8, NVFP4, INT8/INT4, GGUF), marks the best one and says why the others are slower.
-- 🗂️ **Lands in the right place** — checkpoints, LoRAs, embeddings, VAEs, ControlNets, upscalers and more go to their ComfyUI folders, sorted by base model like Model Librarian's Organize.
-- ⏳ **Queue while ComfyUI is closed** — clicks are kept in the extension and sent the moment ComfyUI is reachable (checked every 30 seconds and whenever a ComfyUI tab opens).
-- 🧩 **Everything it needs** — a diffusion model also needs its text encoder and VAE: the panel lists them from ComfyUI's own workflow templates (official links), marks the ones you have, and downloads the rest.
-- ✅ **Knows what you have** — files already in your library show **✓ In your library** (by version or by SHA256 under any name), and nothing is downloaded twice.
-- 📊 **Progress in the toolbar** — the popup lists every download with progress and speed, and the icon counts what's left.
-- 🖥️ **Works with Comfy Desktop** — talks to ComfyUI directly, so no ComfyUI browser tab is needed; a ComfyUI on another PC (e.g. over Tailscale) works too.
-- 🔒 **Keys stay home** — CivitAI keys live in Model Librarian, and only Model Librarian talks to CivitAI for downloads.
+- ⬇️ **One click per file** — on CivitAI model pages (every version and file: full, pruned, fp16, a bundled VAE), HuggingFace file pages and CivArchive pages (live copies of models removed from CivitAI).
+- ★ **Best file for your PC** — rates every file against your GPU, its VRAM (keeping room for the text encoder) and the formats your ComfyUI runs at full speed (FP8, NVFP4, INT8/INT4, GGUF), and says why the others are slower.
+- 🧩 **Everything it needs** — a diffusion model's text encoder and VAE, from ComfyUI's own workflow templates (official links): marked when you have them, fetched with the model if you like.
+- 🖼️ **Every model an image used** — on a CivitAI image or post, the checkpoint and every LoRA it used, in one click; saved as a recipe in Model Librarian or sent to Prompto.
+- ✅ **Knows what you have** — **✓ Have** and **↑ Update** badges on CivitAI's model cards, **✓ In your library** in the panel (by version, SHA256 or file name), and nothing downloaded twice. Files land in the right ComfyUI folder, sorted by base model.
+- ⏳ **Queue while ComfyUI is closed** — clicks wait in the extension and start when ComfyUI is reachable; the popup shows progress, and a notification says when each download is done.
+- 📚 **Collections and save for later** — get every missing model of a CivitAI collection (the best file of each), or star a model to come back to.
+- 🖥️ **Works with Comfy Desktop, and several ComfyUIs** — talks to ComfyUI directly (no browser tab needed); pick which ComfyUI gets the downloads, including one on another PC (e.g. over Tailscale).
+- 🔒 **Keys stay home** — CivitAI and HuggingFace keys live in Model Librarian; the extension never sees them.
 
 ## 📸 Screenshots
 
@@ -97,6 +97,33 @@ Only files on that list can be downloaded this way, and nothing is suggested for
 </details>
 
 <details>
+<summary><b>🖼️ Images, posts and collections</b></summary>
+
+On a CivitAI image page, **Get its models with Model Librarian** sends the page's link to Model Librarian, which reads the image's generation data from CivitAI (the same reader as its Recipes tab) and plans every model it names: the checkpoint or diffusion model, the LoRAs (with their strengths), the VAE. Each shows **✓ In your library**, **Download**, or why it can't be downloaded (removed, early access). **Get all missing** queues the rest; **Save as recipe** keeps it in Model Librarian's Recipes; **Send to Prompto** goes to Prompto's inbox when ComfyUI-Prompto is installed. On a post, pick the image first.
+
+On a collection page, the panel lists the models whose cards are on the page and **Get all N missing** queues the best file of each for your PC (or the newest version's main file). Only cards that are loaded count, so scroll down first for long collections.
+</details>
+
+<details>
+<summary><b>✅ Badges</b></summary>
+
+Every model card on CivitAI (home, search, a user's page, a collection) is checked against your library by model id: **✓ Have** when Model Librarian has a file of that model, **↑ Update** when a newer version of one you have is out (from Model Librarian's update check). The answers are cached for two minutes.
+</details>
+
+<details>
+<summary><b>🤗 HuggingFace and CivArchive</b></summary>
+
+- **HuggingFace**: on a model file's page (`.safetensors`, `.gguf`, `.ckpt`, …), pick the ComfyUI folder (it's guessed from the path, e.g. Comfy-Org's `split_files/vae/`, and the name) and download; the SHA256 HuggingFace lists is checked. A file with the same name in that folder counts as yours.
+- **CivArchive**: every file the page links by SHA256 is looked up: already yours, or its live copies (CivitAI re-uploads, HuggingFace mirrors) planned into the right folder by Model Librarian, and copies on other hosts as links. On a model page, CivitAI's own download is offered first (CivArchive uses CivitAI's ids).
+</details>
+
+<details>
+<summary><b>🖥️ Several ComfyUIs and notifications</b></summary>
+
+**ComfyUI and settings** in the popup lists every ComfyUI answering on ports 8188, 8000 and 8189 (with its Model Librarian version) and the addresses you added; choose which one gets the downloads, or **Find it** to use the first one answering. A notification appears when a download finishes or fails (switch it off there too), and **Get a model's missing text encoder and VAE with it** decides whether those come along automatically.
+</details>
+
+<details>
 <summary><b>⏳ The queue</b></summary>
 
 Each click is stored in the extension first (`chrome.storage`), so nothing is lost if ComfyUI is closed, restarts or the browser restarts. The queue is sent when a Model Librarian answers: every 30 seconds, when a ComfyUI tab finishes loading, and right after a click. Once Model Librarian has a download, the extension follows its progress every 2 seconds. If CivitAI fails for a moment, the item is tried again a few times before it's marked as failed; failed items have **Retry**.
@@ -111,9 +138,9 @@ Model Librarian decides, from CivitAI's details of that version: the folder for 
 <details>
 <summary><b>🔒 Privacy and permissions</b></summary>
 
-- **civitai.com / .green / .red** — to show the panel and read the model's versions and files from CivitAI's public API.
+- **civitai.com / .green / .red, huggingface.co, civarchive.com** — to show the panel; CivitAI's public API is read for model versions and files.
 - **127.0.0.1 / localhost** — to reach Model Librarian in ComfyUI. Another address is asked for when you save it.
-- **storage, alarms** — the queue and the 30-second check. **scripting** — the fallback through an open ComfyUI tab. **declarativeNetRequestWithHostAccess** — the header rule above.
+- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **scripting** — the fallback through an open ComfyUI tab. **declarativeNetRequestWithHostAccess** — the header rule above.
 
 Nothing is sent anywhere else, and the extension stores no keys.
 </details>

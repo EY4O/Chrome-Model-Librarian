@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Model Librarian",
-  "version": "0.3.1",
-  "description": "One-click CivitAI downloads into your ComfyUI, sorted and SHA256-verified by Model Librarian. Waits for ComfyUI when it's closed.",
+  "version": "0.4.0",
+  "description": "One-click downloads from CivitAI, HuggingFace and CivArchive into your ComfyUI, sorted and SHA256-verified by Model Librarian. Waits for ComfyUI when it's closed.",
   "minimum_chrome_version": "121",
   "icons": {
     "16": "icons/icon16.png",
@@ -14,7 +14,8 @@
     "storage",
     "alarms",
     "scripting",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequestWithHostAccess",
+    "notifications"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -42,6 +43,17 @@
         "content/civitai.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://huggingface.co/*",
+        "https://civarchive.com/*",
+        "https://www.civarchive.com/*"
+      ],
+      "js": [
+        "content/sites.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -58,9 +70,12 @@
         "icons/icon32.png"
       ],
       "matches": [
+        "https://civarchive.com/*",
         "https://civitai.com/*",
         "https://civitai.green/*",
-        "https://civitai.red/*"
+        "https://civitai.red/*",
+        "https://huggingface.co/*",
+        "https://www.civarchive.com/*"
       ]
     }
   ]
