@@ -14,6 +14,7 @@
 | `lib/fit.js` | Which file suits this PC: format from the file name, verdict and score per file, the recommendation (tested). |
 | `lib/comfy.js` | Talking to Model Librarian: direct, or through an open ComfyUI tab (tested). |
 | `tools/make_icons.py` | Toolbar icons from `docs/images/icon.png`. |
+| `tools/media/make_media.py` | README screenshots on staged pages (see below). |
 
 ## Model Librarian's side
 
@@ -43,6 +44,14 @@ node --test
 
 Node 20+. The tests cover the queue, CivitAI parsing and the ComfyUI client with fake responses; the end-to-end check (headless Edge with the extension loaded, against a test ComfyUI) is run by hand.
 
+## README screenshots
+
+```bash
+python tools/media/make_media.py
+```
+
+Writes `docs/images/*.png` (except the icon) from staged pages: a local HTTPS server answers for civitai.com and huggingface.co in a headless Edge started with `--host-resolver-rules` (and `--ignore-certificate-errors` for its throwaway certificate), serving neutral sample pages and API answers with the art in `tools/media/samples/`; a fake Model Librarian answers on 127.0.0.1:8211. The extension runs unchanged. Needs Edge, Python with aiohttp, websockets and Pillow (ComfyUI's environment), openssl on PATH (Git for Windows), and port 443 free. The popup's ComfyUI list also shows whatever real ComfyUI answers on 8188/8000/8189 at the time.
+
 ## Releasing
 
-Bump `version` in `manifest.json`, commit, push. Users reload the unpacked extension. A Chrome Web Store package (zip of the folder without `tests/`, `tools/`, `docs/`, `package.json`) can come later.
+Bump `version` in `manifest.json`, commit, push. Users reload the unpacked extension. (Not published to the Chrome Web Store.)

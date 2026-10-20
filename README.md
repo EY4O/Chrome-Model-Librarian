@@ -11,7 +11,7 @@
 
 A Chrome and Edge extension for people who use [Model Librarian](https://github.com/EY4O/ComfyUI-Model-Librarian) in ComfyUI. It puts a **Download with Model Librarian** panel on every CivitAI model page. Model Librarian does the download inside ComfyUI, the same way its Recipes tab does: the right folder for the model's type, a subfolder for its base model, SHA256 check, resume, metadata and preview. ComfyUI doesn't have to be open when you click: downloads wait in the extension and start when it is.
 
-<p align="center"><img src="docs/images/panel-best.png" width="370" alt="The panel on a CivitAI model page, suggesting the best file for an RTX 4070"></p>
+<p align="center"><img src="docs/images/panel-best.png" width="370" alt="The panel on a model page: the best file for an RTX 4070, and the text encoder and VAE it also needs"></p>
 
 > **⚠ Needs Model Librarian 1.11.0 or newer**; 1.15.0 for everything here (image pages, badges, HuggingFace and CivArchive). in the ComfyUI you download into. CivitAI keys stay in Model Librarian (**Settings**); the extension never sees them.
 
@@ -31,12 +31,18 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 
 | | |
 |:---:|:---:|
-| ![Already in your library](docs/images/panel-owned.png) **Already in your library** — found by version or SHA256 | ![Popup](docs/images/popup.png) **Popup** — connection, queue and progress |
-| ![Queued](docs/images/panel-queued.png) **ComfyUI closed?** — the download waits and starts when it runs | |
+| <img src="docs/images/image-panel.png" width="370" alt="Image page panel"><br>**Every model an image used** — in your library, to download, or free on a later day | <img src="docs/images/popup.png" width="340" alt="Popup"><br>**Popup** — progress, finished downloads, and the ones waiting for their day |
+| <img src="docs/images/panel-waiting.png" width="370" alt="Paid early access"><br>**Paid for now?** — get it on the day it's free, or try now if you've bought it | <img src="docs/images/hf-panel.png" width="370" alt="HuggingFace panel"><br>**HuggingFace** — into the folder guessed from the file's path |
+
+<p align="center"><img src="docs/images/badges.png" width="760" alt="Badges on model cards"><br><b>Badges</b> — models you have, and ones with a newer version, marked on every listing</p>
+
+<p align="center"><img src="docs/images/popup-settings.png" width="340" alt="Choosing a ComfyUI"><br><b>Several ComfyUIs</b> — pick which one gets the downloads</p>
+
+<sub>Screenshots use staged pages and sample data (`tools/media/make_media.py`), not real CivitAI or HuggingFace content.</sub>
 
 ## 📦 Installation
 
-### Option 1: **Load unpacked** (Recommended for now)
+### Load unpacked
 
 1. Download this repository (**Code → Download ZIP**, then unzip) or clone it:
    ```bash
@@ -48,16 +54,12 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 
 To update: pull or unzip the new version over the old one, then press the reload arrow on the extension's card.
 
-### Option 2: **Chrome Web Store**
-
-Not published yet.
-
 ## 🚀 Getting Started
 
-1. Make sure Model Librarian 1.11.0+ is installed in your ComfyUI (ComfyUI-Manager or the Comfy Registry).
-2. Start ComfyUI. Click the toolbar icon: it should say **Connected to ComfyUI**. It looks on ports 8188, 8000 (Comfy Desktop) and 8189 by itself; another address goes under **ComfyUI address**.
+1. Make sure Model Librarian 1.15.0+ is installed in your ComfyUI (ComfyUI-Manager or the Comfy Registry).
+2. Start ComfyUI. Click the toolbar icon: it should say **Connected to ComfyUI**. It looks on ports 8188, 8000 (Comfy Desktop) and 8189 by itself; another address goes under **ComfyUI and settings**.
 3. Open a model on CivitAI and press **Download with Model Librarian** at the bottom right.
-4. Pick the version, then **Download** next to the file you want.
+4. Pick the version (★ marks the best one for your PC), then **Download** next to the file you want. On an image page, **Get its models with Model Librarian** fetches everything the image used.
 5. Follow it in the popup; when it's done the model is in ComfyUI's lists after a refresh.
 
 ## 📖 How It Works

@@ -52,6 +52,7 @@
     .kind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #9a9aa3; letter-spacing: .4px; }
     .prompt { font-size: 12px; color: #c9c9cf; max-height: 54px; overflow: hidden; }
     .acts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .file > .acts, .item > .acts { flex-direction: column; flex-wrap: nowrap; align-items: stretch; flex: none; }
     .choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
     .choices button { padding: 0; border: 1px solid #2c2f37; border-radius: 7px; background: #111; cursor: pointer; aspect-ratio: 1; overflow: hidden; position: relative; }
     .choices img { width: 100%; height: 100%; object-fit: cover; display: block; }
