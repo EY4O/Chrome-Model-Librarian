@@ -145,7 +145,7 @@
         h("div", { class: "kind" }, KINDS[it.kind] || it.kind, it.weight != null && it.kind === "lora" ? ` · ${it.weight}` : ""),
         h("div", { class: "fn", title: it.name }, it.name, it.version ? h("span", { class: "dim" }, ` · ${it.version}`) : null),
         it.download ? h("div", { class: "dim" }, [`${it.download.folder}/${it.download.rel}`, fmtSize(it.download.size)].filter(Boolean).join(" · ")) : null,
-        it.note ? h("div", { class: it.status === "unavailable" ? "warn" : "dim" }, it.note) : null,
+        it.note ? h("div", { class: it.status === "unavailable" || /purchase/i.test(it.note) ? "warn" : "dim" }, it.note) : null,
         q && q.status === "error" ? h("div", { class: "err" }, q.error) : null),
       right);
   }
@@ -365,7 +365,8 @@
           body.append(h("select", { onchange: (e) => { s.versionId = Number(e.target.value); render(); } },
             m.versions.map((x) => h("option", { value: x.id, selected: x.id === v.id }, `${versionMark(x)}${x.name}${x.baseModel ? ` · ${x.baseModel}` : ""}`))));
         } else body.append(h("div", { class: "dim" }, `${v.name}${v.baseModel ? ` · ${v.baseModel}` : ""}`));
-        if (v.earlyAccess) body.append(h("div", { class: "warn" }, "Early access: the download may need a purchase and your CivitAI key in Model Librarian."));
+        if (v.access) body.append(h("div", { class: "warn" }, `${v.access}. Your CivitAI key in Model Librarian is enough once you've bought it.`));
+        else if (v.earlyAccess) body.append(h("div", { class: "warn" }, "Early access: the download may need a purchase and your CivitAI key in Model Librarian."));
         const rank = (f) => (rec && rec.fileId === f.id ? 0 : { good: 1, slow: 2, no: 3 }[(s.info.fits[f.id] || {}).verdict] || 2);
         body.append(...[...v.files].sort((a, b) => rank(a) - rank(b)).map((f) => fileRow(v, f)));
         const needs = needsSection(v);

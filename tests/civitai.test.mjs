@@ -61,3 +61,13 @@ test("sizes", () => {
   assert.equal(fmtSize(6.5 * 1024 ** 3), "6.5 GB");
   assert.equal(fmtSize(null), "");
 });
+
+test("paid and early access are named before the click", async () => {
+  const { accessNote } = await import("../lib/civitai.js");
+  const now = Date.parse("2026-10-20T00:00:00Z");
+  assert.match(accessNote({ paidAccess: { permanent: false, endsAt: "2026-10-25T15:05:35.501Z" } }, now), /^Paid early access on CivitAI until 25 Oct 2026/);
+  assert.match(accessNote({ paidAccess: { permanent: true } }, now), /^A paid model/);
+  assert.equal(accessNote({ paidAccess: { endsAt: "2026-01-01T00:00:00Z" } }, now), null);
+  assert.match(accessNote({ earlyAccessEndsAt: "2026-11-01T00:00:00Z" }, now), /^Early access/);
+  assert.equal(accessNote({}, now), null);
+});
