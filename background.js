@@ -121,7 +121,7 @@ function pump() {
 
 async function pumpOnce() {
   await setupRules();
-  await withQueue((q) => ({ queue: Q.wake(q) })); // paid / early access ones whose day has come
+  await withQueue((q) => ({ queue: Q.prune(Q.wake(q)) })); // paid / early access ones whose day has come; old finished ones go
   const { settings, queue } = await load();
   const conn = await comfy.detect(settings.base);
   const { conn: prev } = await chrome.storage.local.get({ conn: {} });
@@ -141,7 +141,8 @@ async function pumpOnce() {
         : await comfy.api(conn.base, "/ext/download", { method: "POST", body: { version_id: item.versionId, file_id: item.fileId } });
     } catch (e) {
       if (e.status === 0) return; // ComfyUI went away: the item stays queued
-      res = { error: e.message, transient: e.status === 502 || e.status === 409 };
+      // no answer in time (it may be busy, e.g. reading a big library): tried again, a few times
+      res = { error: e.message, transient: e.status === 502 || e.status === 409 || e.status === -1 };
     }
     await withQueue(async (q) => { const next = Q.applySend(q, item.key, res, Date.now(), conn.base); await notifyChanges(q, next); return { queue: next }; });
   }
@@ -155,7 +156,9 @@ async function pumpOnce() {
     try {
       const { jobs } = await comfy.api(b, `/ext/jobs?ids=${ids.join(",")}`);
       await withQueue(async (q) => { const next = Q.applyJobs(q, jobs, Date.now(), ids); await notifyChanges(q, next); return { queue: next }; });
-    } catch {} // that ComfyUI isn't answering right now: try again next time
+    } catch { // that ComfyUI isn't answering right now: tried again next time, and given up on after a while
+      await withQueue(async (q) => { const next = Q.markUnreachable(q, b, Date.now()); await notifyChanges(q, next); return { queue: next }; });
+    }
   }
   // while something is downloading, follow it closely (the 30 s alarm is the fallback)
   const { queue: after } = await chrome.storage.local.get({ queue: [] });
@@ -246,7 +249,15 @@ async function bestFile(host, modelId) {
 }
 
 // ---------------------------------------------------------------- messages from the page and the popup
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+const POPUP_ONLY = new Set(["settings", "clear", "remove", "scan"]);
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (sender.id !== chrome.runtime.id) return false;
+  // the extension's own pages (the popup, even opened in a tab) vs. its scripts running inside web pages
+  const fromPage = !String(sender.url || "").startsWith(`chrome-extension://${chrome.runtime.id}/`);
+  if (fromPage && msg && POPUP_ONLY.has(msg.type)) { reply({ error: "not from a page" }); return false; }
+  if (fromPage && msg && msg.type === "enqueue" && msg.item && msg.item.kind === "plan" && !/^https:\/\//.test((msg.item.download || {}).url || "")) {
+    reply({ error: "Only https:// downloads" }); return false;
+  }
   (async () => {
     switch (msg && msg.type) {
       case "model": return modelInfo(msg.page);
@@ -302,10 +313,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           const { settings } = await load();
           patch.saved = settings.saved.filter((b) => b !== patch.forget);
           if (settings.base === patch.forget) patch.base = "";
+          // its permission goes too (loopback addresses are part of the extension itself)
+          if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(patch.forget)) {
+            chrome.permissions.remove({ origins: [patch.forget.replace(/\/$/, "") + "/*"] }).catch(() => {});
+          }
           delete patch.forget;
         }
         await saveSettings(patch);
-        await pump();
+        pump(); // the popup isn't kept waiting for a whole send pass
         return load();
       }
       case "scan": {

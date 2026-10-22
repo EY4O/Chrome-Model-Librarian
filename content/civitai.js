@@ -90,9 +90,12 @@
     while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
     return `${b >= 100 || i === 0 ? Math.round(b) : b.toFixed(1)} ${u[i]}`;
   };
+  // after the extension is updated or reloaded, this page's script is cut off from it: say so once, plainly
+  const STALE_MSG = "Model Librarian for Chrome was updated: reload this page to use it again.";
   const send = (msg) => new Promise((res) => {
-    try { chrome.runtime.sendMessage(msg, (r) => res(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : r)); }
-    catch (e) { res({ error: String(e.message || e) }); } // the extension was reloaded: this page needs a refresh
+    if (!chrome.runtime?.id) return res({ error: STALE_MSG });
+    try { chrome.runtime.sendMessage(msg, (r) => res(chrome.runtime.lastError ? { error: /context invalidated/i.test(chrome.runtime.lastError.message) ? STALE_MSG : chrome.runtime.lastError.message } : r)); }
+    catch (e) { res({ error: /context invalidated/i.test(String(e.message || e)) ? STALE_MSG : String(e.message || e) }); }
   });
 
   const s = { page: null, key: null, open: false, info: null, error: null, versionId: null, queue: [], conn: { ok: false }, needs: {},
@@ -116,7 +119,7 @@
     Object.assign(s, { recipe: null, error: null, saved: false, sentPrompto: false, imageUrl: url });
     render();
     const r = await send({ type: "recipe", url });
-    if (s.page !== p) return;
+    if (s.page !== p || s.imageUrl !== url) return; // the page changed, or another image was clicked meanwhile
     if (r && (r.recipe || r.choices)) s.recipe = r;
     else s.error = (r && r.error) || "Couldn't read this image's generation data";
     if (s.prompto === null) send({ type: "promptoStatus" }).then((x) => { s.prompto = !!(x && x.recipe); render(); });
@@ -239,7 +242,7 @@
     const main = mainFile(v);
     if (s.withNeeds && main && main.id === f.id) {
       const n = s.needs[`${v.baseModel}|${f.name}`];
-      for (const c of missingNeeds(n && n.companions)) getCompanion(v, f, c);
+      for (const c of missingNeeds(n && n.companions)) getCompanion(v, f, c, m.name);
     }
   }
 
@@ -333,10 +336,10 @@
         "Get the missing ones when I download the model") : null);
   }
 
-  async function getCompanion(v, f, c) {
+  async function getCompanion(v, f, c, modelName = s.info && s.info.model ? s.info.model.name : "") {
     const r = await send({ type: "enqueue", item: {
       kind: "companion", name: c.name, folder: c.folder, baseModel: v.baseModel, forFile: f.name,
-      title: `${c.folder === "vae" ? "VAE" : c.folder === "clip_vision" ? "CLIP vision" : "Text encoder"} for ${s.info.model.name}`,
+      title: `${c.folder === "vae" ? "VAE" : c.folder === "clip_vision" ? "CLIP vision" : "Text encoder"} for ${modelName}`,
       file: c.name, pageUrl: c.url,
     } });
     if (r && r.error) { s.error = r.error; render(); }

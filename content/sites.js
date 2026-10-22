@@ -60,9 +60,12 @@
     while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
     return `${b >= 100 || i === 0 ? Math.round(b) : b.toFixed(1)} ${u[i]}`;
   };
+  // after the extension is updated or reloaded, this page's script is cut off from it: say so once, plainly
+  const STALE_MSG = "Model Librarian for Chrome was updated: reload this page to use it again.";
   const send = (msg) => new Promise((res) => {
-    try { chrome.runtime.sendMessage(msg, (r) => res(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : r)); }
-    catch (e) { res({ error: String(e.message || e) }); }
+    if (!chrome.runtime?.id) return res({ error: STALE_MSG });
+    try { chrome.runtime.sendMessage(msg, (r) => res(chrome.runtime.lastError ? { error: /context invalidated/i.test(chrome.runtime.lastError.message) ? STALE_MSG : chrome.runtime.lastError.message } : r)); }
+    catch (e) { res({ error: /context invalidated/i.test(String(e.message || e)) ? STALE_MSG : String(e.message || e) }); }
   });
 
   // A model file's ComfyUI folder, guessed from its path (Comfy-Org repos use the folder names) and name.
@@ -80,13 +83,14 @@
     return "checkpoints";
   }
 
-  const s = { page: null, key: null, open: false, queue: [], conn: { ok: false }, folder: null, plan: null, files: {}, error: null };
+  const s = { page: null, key: null, open: false, queue: [], conn: { ok: false }, folder: null, plan: null, files: {}, retries: {}, error: null };
 
   function page() {
     if (location.hostname === "huggingface.co") {
       const m = location.pathname.match(/^\/([^/]+\/[^/]+)\/(blob|resolve)\/([^/]+)\/(.+)$/);
       if (!m || !MODEL_EXT.test(m[4])) return null;
-      const path = decodeURIComponent(m[4]);
+      let path = m[4];
+      try { path = decodeURIComponent(m[4]); } catch {} // a malformed %-escape: the path as it is
       return { site: "hf", url: `https://huggingface.co/${m[1]}/blob/${m[3]}/${m[4]}`, repo: m[1], path, name: path.split("/").pop() };
     }
     if (/(^|\.)civarchive\.com$/.test(location.hostname)) {
@@ -152,7 +156,10 @@
       s.files[sha] = { loading: true };
       send({ type: "civarchive", sha256: sha }).then((r) => {
         s.files[sha] = r || { error: "No answer" };
-        if (!r || r.error) setTimeout(() => { if (s.files[sha] === r || !r) delete s.files[sha]; }, 15000); // asked again later
+        if (!r || r.error) { // asked again later, waiting longer each time (not every 15 s for ever)
+          const tries = (s.retries[sha] = (s.retries[sha] || 0) + 1);
+          if (tries <= 5) setTimeout(() => { if (s.files[sha] === r || !r) delete s.files[sha]; }, 15000 * 2 ** (tries - 1));
+        }
         render();
       });
     }

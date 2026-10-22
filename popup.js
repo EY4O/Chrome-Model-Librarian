@@ -68,9 +68,9 @@ function item(x, conn) {
 let found = [];
 function drawTargets(settings) {
   const radio = (value, label, note, forget) => h("label", null,
-    h("input", { type: "radio", name: "target", checked: (settings.base || "") === value, onchange: () => send({ type: "settings", base: value }).then(render) }),
+    h("input", { type: "radio", name: "target", checked: (settings.base || "") === value, onchange: () => send({ type: "settings", base: value }).then(show) }),
     label, note ? h("span", { class: "dim" }, note) : null,
-    forget ? h("button", { class: "link", title: "Forget this address", onclick: (e) => { e.preventDefault(); send({ type: "settings", forget: value }).then(render); } }, "×") : null);
+    forget ? h("button", { class: "link", title: "Forget this address", onclick: (e) => { e.preventDefault(); send({ type: "settings", forget: value }).then(show); } }, "×") : null);
   const bases = [...new Set([...found.filter((f) => f.ok).map((f) => f.base), ...(settings.saved || [])])];
   $("targets").replaceChildren(radio("", "Find it", "first one answering"),
     ...bases.map((b) => {
@@ -78,7 +78,9 @@ function drawTargets(settings) {
       return radio(b, b.replace(/^https?:\/\//, ""), f ? (f.ok ? `Model Librarian ${f.version}` : "not answering") : "", (settings.saved || []).includes(b));
     }));
 }
-async function scan() { found = await send({ type: "scan" }); refresh(); }
+async function scan() { const r = await send({ type: "scan" }); found = Array.isArray(r) ? r : []; refresh(); }
+// an answer to show, or (an error) the current state instead
+function show(st) { if (st && st.conn) render(st); else refresh(); }
 
 async function drawLater() {
   const { saved = [] } = await chrome.storage.local.get({ saved: [] });
@@ -102,7 +104,7 @@ $("save").onclick = async () => {
     if (!ok) return;
   }
   $("base").value = "";
-  render(await send({ type: "settings", base }));
+  show(await send({ type: "settings", base }));
   scan();
 };
 $("notify").onchange = (e) => send({ type: "settings", notify: e.target.checked });

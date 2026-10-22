@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Model Librarian",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "One-click downloads from CivitAI, HuggingFace and CivArchive into your ComfyUI, sorted and SHA256-verified by Model Librarian. Waits for ComfyUI when it's closed.",
   "minimum_chrome_version": "121",
   "icons": {

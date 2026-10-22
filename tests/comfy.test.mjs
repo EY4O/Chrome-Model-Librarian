@@ -36,9 +36,9 @@ test("api: JSON back, errors carry Model Librarian's message and the status", as
 });
 
 test("detect: the first port with Model Librarian, or why not", async () => {
-  const up = { "http://127.0.0.1:8000": res(200, { app: "model-librarian", version: "1.11.0", civitai_key: true, free_bytes: 5 }) };
+  const up = { "http://127.0.0.1:8000": res(200, { app: "model-librarian", version: "1.20.0", civitai_key: true, free_bytes: 5 }) };
   let r = await detect("", async (url) => up[new URL(url).origin] || Promise.reject(new TypeError("refused")));
-  assert.deepEqual(r, { ok: true, base: "http://127.0.0.1:8000", version: "1.11.0", civitaiKey: true, freeBytes: 5, system: null });
+  assert.deepEqual(r, { ok: true, base: "http://127.0.0.1:8000", version: "1.20.0", civitaiKey: true, freeBytes: 5, system: null });
   r = await detect("", async (url) => (url.startsWith("http://127.0.0.1:8188") ? res(404, "Not Found") : Promise.reject(new TypeError("refused"))));
   assert.equal(r.ok, false);
   assert.match(r.error, /without Model Librarian/);

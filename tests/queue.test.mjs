@@ -154,3 +154,36 @@ test("never stuck downloading: interrupted, lost, and followed on the ComfyUI it
   q2 = Q.applyJobs(q2, [{ id: "a", status: "downloading", done: 5, total: 100 }], 1, ["a"]);
   assert.equal(q2[0].misses, 0);
 });
+
+test("a ComfyUI that stops answering: its downloads are reported after a while, not followed for ever", () => {
+  const t0 = 1_000_000;
+  let q = [{ key: "a", status: "downloading", jobId: "j1", base: "http://pc:8188" }, { key: "b", status: "downloading", jobId: "j2", base: "http://other:8188" }];
+  q = Q.markUnreachable(q, "http://pc:8188", t0);
+  assert.equal(q[0].status, "downloading");
+  assert.equal(q[0].unreachableSince, t0);
+  assert.equal(q[1].unreachableSince, undefined);
+  const same = Q.markUnreachable(q, "http://pc:8188", t0 + 1000);
+  assert.equal(same[0], q[0]); // nothing to rewrite while it's waited for
+  q = Q.markUnreachable(q, "http://pc:8188", t0 + Q.UNREACHABLE_AFTER);
+  assert.equal(q[0].status, "error");
+  assert.match(q[0].error, /stopped answering/);
+  // answering again before then clears it
+  const back = Q.applyJobs([{ key: "c", status: "downloading", jobId: "j3", unreachableSince: t0 }], [{ id: "j3", status: "downloading", done: 5, total: 10 }], t0 + 5);
+  assert.equal(back[0].unreachableSince, null);
+});
+
+test("progress that didn't change leaves the queue as it was; a file that appeared meanwhile counts as had", () => {
+  const item = { key: "a", status: "downloading", jobId: "j1", done: 5, total: 10, speed: 2, dest: "/m/x", updated: 1 };
+  const out = Q.applyJobs([item], [{ id: "j1", status: "downloading", done: 5, total: 10, speed: 2, dest: "/m/x" }], 999);
+  assert.equal(out[0], item);
+  const had = Q.applyJobs([item], [{ id: "j1", status: "error", error: "A file with this name already exists at the destination" }], 999);
+  assert.equal(had[0].status, "have");
+});
+
+test("already in the library: the file you have, and old finished items are cleared", () => {
+  const q = Q.applySend([{ key: "a", status: "queued", attempts: 0 }], "a", { status: "have", dest: "/planned/new.safetensors", folder: "loras", rel: "Pony/old.safetensors" });
+  assert.equal(q[0].dest, "loras/Pony/old.safetensors");
+  const now = 100 * 24 * 3600 * 1000;
+  const kept = Q.prune([{ key: "old", status: "done", updated: now - Q.KEEP_FINISHED - 1 }, { key: "new", status: "done", updated: now - 1000 }, { key: "err", status: "error", updated: 0 }], now);
+  assert.deepEqual(kept.map((x) => x.key), ["new", "err"]);
+});
