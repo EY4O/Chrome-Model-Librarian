@@ -20,12 +20,13 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 - ⬇️ **One click per file** — on CivitAI model pages (every version and file: full, pruned, fp16, a bundled VAE), HuggingFace file pages and CivArchive pages (live copies of models removed from CivitAI).
 - ★ **Best file for your PC** — rates every file against your GPU, its VRAM (keeping room for the text encoder) and the formats your ComfyUI runs at full speed (FP8, NVFP4, INT8/INT4, GGUF), and says why the others are slower.
 - 🧩 **Everything it needs** — a diffusion model's text encoder and VAE, from ComfyUI's own workflow templates (official links): marked when you have them, fetched with the model if you like.
-- 🖼️ **Every model an image used** — on a CivitAI image or post, the checkpoint and every LoRA it used, in one click; saved as a recipe in Model Librarian or sent to Prompto.
-- ✅ **Knows what you have** — **✓ Have** and **↑ Update** badges on CivitAI's model cards, **✓ In your library** in the panel (by version, SHA256 or file name), and nothing downloaded twice. Files land in the right ComfyUI folder, sorted by base model.
-- ⏳ **Queue while ComfyUI is closed** — clicks wait in the extension and start when ComfyUI is reachable; the popup shows progress, and a notification says when each download is done.
+- 🖼️ **Every model an image used** — on a CivitAI image or post, the checkpoint and every LoRA it used, in one click; saved as a recipe in Model Librarian.
+- ✅ **Knows what you have** — **✓ Have** and **↑ Get update** badges on CivitAI's model cards (one click gets the newer version), **✓ In your library** in the panel (by version, SHA256 or file name), and nothing downloaded twice. Files land in the right ComfyUI folder, sorted by base model.
+- 🖱️ **Right-click any model link** — **Download with Model Librarian** on a CivitAI model link queues its best file for your PC, without opening the page.
+- ⏳ **Queue while ComfyUI is closed** — clicks wait in the extension and start when ComfyUI is reachable; the popup shows progress, with **Cancel** and **Retry** that act in Model Librarian itself, and a notification says when each download is done.
 - 📚 **Collections and save for later** — get every missing model of a CivitAI collection (the best file of each), or star a model to come back to.
 - 🖥️ **Works with Comfy Desktop, and several ComfyUIs** — talks to ComfyUI directly (no browser tab needed); pick which ComfyUI gets the downloads, including one on another PC (e.g. over Tailscale).
-- 🔒 **Keys stay home** — CivitAI and HuggingFace keys live in Model Librarian; the extension never sees them.
+- 🔒 **Keys stay home** — CivitAI and HuggingFace keys live in Model Librarian; the extension never sees them. A model CivitAI only shows to signed-in users is looked up through Model Librarian, with your key, so it still works.
 
 ## 📸 Screenshots
 
@@ -101,15 +102,17 @@ Only files on that list can be downloaded this way, and nothing is suggested for
 <details>
 <summary><b>🖼️ Images, posts and collections</b></summary>
 
-On a CivitAI image page, **Get its models with Model Librarian** sends the page's link to Model Librarian, which reads the image's generation data from CivitAI (the same reader as its Recipes tab) and plans every model it names: the checkpoint or diffusion model, the LoRAs (with their strengths), the VAE. Each shows **✓ In your library**, **Download**, or why it can't be downloaded (removed, early access). **Get all missing** queues the rest; **Save as recipe** keeps it in Model Librarian's Recipes; **Send to Prompto** goes to Prompto's inbox when ComfyUI-Prompto is installed. On a post, pick the image first.
+On a CivitAI image page, **Get its models with Model Librarian** sends the page's link to Model Librarian, which reads the image's generation data from CivitAI (the same reader as its Recipes tab) and plans every model it names: the checkpoint or diffusion model, the LoRAs (with their strengths), the VAE. Each shows **✓ In your library**, **Download**, or why it can't be downloaded (removed, early access). **Get all missing** queues the rest; **Save as recipe** keeps it in Model Librarian's Recipes. On a post, pick the image first.
 
-On a collection page, the panel lists the models whose cards are on the page and **Get all N missing** queues the best file of each for your PC (or the newest version's main file). Only cards that are loaded count, so scroll down first for long collections.
+On a collection page, the panel lists the models whose cards are on the page. **Get all N missing** queues the best file of each for your PC (or the newest version's main file), and **Get all N updates** the newer version of each one you have. It runs in the background, with its progress in the panel, so you can close the panel or leave the page; it carries on if the browser restarts the extension. Only cards that are loaded count, so scroll down first for long collections.
 </details>
 
 <details>
 <summary><b>✅ Badges</b></summary>
 
-Every model card on CivitAI (home, search, a user's page, a collection) is checked against your library by model id: **✓ Have** when Model Librarian has a file of that model, **↑ Update** when a newer version of one you have is out (from Model Librarian's update check). The answers are cached for two minutes.
+Every model card on CivitAI (home, search, a user's page, a collection) is checked against your library by model id: **✓ Have** when Model Librarian has a file of that model, **↑ Get update** when a newer version of one you have is out (from Model Librarian's update check). Click **↑ Get update** to queue the newer version's best file for your PC without opening the card. On a model page, a version you have with a newer one out shows **You have v1; v2 is newer** with **Get update**. The answers are cached for two minutes.
+
+Right-click a CivitAI model link anywhere for **Download with Model Librarian**: the best file for your PC (or the version the link points at) is queued, and a notification says so.
 </details>
 
 <details>
@@ -128,7 +131,7 @@ Every model card on CivitAI (home, search, a user's page, a collection) is check
 <details>
 <summary><b>⏳ The queue</b></summary>
 
-Each click is stored in the extension first (`chrome.storage`), so nothing is lost if ComfyUI is closed, restarts or the browser restarts. The queue is sent when a Model Librarian answers: every 30 seconds, when a ComfyUI tab finishes loading, and right after a click. Once Model Librarian has a download, the extension follows its progress every 2 seconds. If CivitAI fails for a moment, the item is tried again a few times before it's marked as failed; failed items have **Retry**.
+Each click is stored in the extension first (`chrome.storage`), so nothing is lost if ComfyUI is closed, restarts or the browser restarts. The queue is sent when a Model Librarian answers: every 30 seconds, when a ComfyUI tab finishes loading, and right after a click. Once Model Librarian has a download, the extension follows its progress every 2 seconds. If CivitAI fails for a moment, the item is tried again a few times before it's marked as failed. **Cancel** stops a download in Model Librarian too; **Retry** carries on in Model Librarian from where the file stopped when it still has the download (an interrupted or cancelled one), and sends it again otherwise. A ComfyUI that stops answering for 10 minutes has its downloads marked as failed, with Retry, instead of spinning for ever, and finished items are cleared from the list after two weeks.
 
 A version that's paid or early access for now (CivitAI says until when) offers **Get it on <date>**: it waits in the downloads list (**⏰ Waiting until …** in the popup) and starts by itself once that day has passed, with **Try now** if you've bought it. A download CivitAI refuses for that reason turns into such a wait by itself, and a failed one can be set to **Wait for <date>**.
 </details>
@@ -144,7 +147,7 @@ Model Librarian decides, from CivitAI's details of that version: the folder for 
 
 - **civitai.com / .green / .red, huggingface.co, civarchive.com** — to show the panel; CivitAI's public API is read for model versions and files.
 - **127.0.0.1 / localhost** — to reach Model Librarian in ComfyUI. Another address is asked for when you save it.
-- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **scripting** — the fallback through an open ComfyUI tab. **declarativeNetRequestWithHostAccess** — the header rule above.
+- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **contextMenus** — **Download with Model Librarian** on CivitAI model links. **scripting** — the fallback through an open ComfyUI tab. **declarativeNetRequestWithHostAccess** — the header rule above.
 
 Nothing is sent anywhere else, and the extension stores no keys.
 </details>

@@ -187,3 +187,12 @@ test("already in the library: the file you have, and old finished items are clea
   const kept = Q.prune([{ key: "old", status: "done", updated: now - Q.KEEP_FINISHED - 1 }, { key: "new", status: "done", updated: now - 1000 }, { key: "err", status: "error", updated: 0 }], now);
   assert.deepEqual(kept.map((x) => x.key), ["new", "err"]);
 });
+
+test("cancel stops it here; a retry in Model Librarian is followed as that download", () => {
+  let q = [{ key: "a", status: "downloading", jobId: "j1", speed: 5 }, { key: "b", status: "done" }];
+  q = Q.cancel(q, "a", 10);
+  assert.equal(q[0].status, "cancelled");
+  assert.equal(Q.cancel(q, "b", 10)[1].status, "done"); // a finished one stays finished
+  const r = Q.resumed([{ key: "c", status: "error", jobId: "j1", error: "Interrupted", total: 100, misses: 2 }], "c", { id: "j2", done: 40, total: 100 }, 20);
+  assert.deepEqual([r[0].status, r[0].jobId, r[0].done, r[0].error, r[0].misses], ["downloading", "j2", 40, null, 0]);
+});

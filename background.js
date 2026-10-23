@@ -4,7 +4,7 @@
 // and right after each click).
 import * as comfy from "./lib/comfy.js";
 import * as Q from "./lib/queue.js";
-import { fetchModel } from "./lib/civitai.js";
+import { fetchModel, normalizeModel } from "./lib/civitai.js";
 import { assess, recommend, gpuName, needsTextEncoder, textEncoderOf } from "./lib/fit.js";
 
 const RULE_ID = 1;
@@ -119,8 +119,35 @@ function pump() {
   return pumping;
 }
 
+// A collection queued model by model. Its state is in storage, so it carries on if the browser restarts this
+// worker part-way (the next pump picks it up).
+let collecting = false;
+async function runCollect() {
+  if (collecting) return;
+  collecting = true;
+  try {
+    for (;;) {
+      const { collect } = await chrome.storage.local.get({ collect: null });
+      if (!collect || !collect.pending || !collect.pending.length) break;
+      const { id, versionId } = collect.pending[0];
+      let r;
+      try {
+        const b = await bestFile(collect.host, id, versionId);
+        r = b.item ? { id, name: b.name, queued: (await withQueue((q) => Q.enqueue(q, b.item))).added } : { id, ...b };
+      } catch (e) { r = { id, error: e.message }; }
+      const { collect: now } = await chrome.storage.local.get({ collect: null });
+      if (!now || now.started !== collect.started) break; // a newer one replaced it
+      await chrome.storage.local.set({ collect: { ...now, pending: now.pending.slice(1), results: [...now.results, r] } });
+      if (r.queued) pump();
+    }
+  } finally {
+    collecting = false;
+  }
+}
+
 async function pumpOnce() {
   await setupRules();
+  chrome.storage.local.get({ collect: null }).then(({ collect }) => { if (collect && collect.pending && collect.pending.length) runCollect(); });
   await withQueue((q) => ({ queue: Q.prune(Q.wake(q)) })); // paid / early access ones whose day has come; old finished ones go
   const { settings, queue } = await load();
   const conn = await comfy.detect(settings.base);
@@ -167,8 +194,24 @@ async function pumpOnce() {
 }
 
 // ---------------------------------------------------------------- model pages
+// A model from CivitAI's public API, or, when that won't show it (mature, or only for signed-in users), from
+// Model Librarian 1.21.0+, which asks CivitAI with your key. The key itself never reaches the extension.
+async function fetchModelAny(host, modelId) {
+  try {
+    return await fetchModel(host, modelId);
+  } catch (e) {
+    const { conn } = await load();
+    if (!conn.ok || !comfy.newer(conn.version || "0", "1.21.0")) throw e;
+    try {
+      return normalizeModel(await comfy.api(conn.base, `/ext/model?id=${encodeURIComponent(modelId)}&raw=1`, { timeout: 30000 }));
+    } catch {
+      throw e;
+    }
+  }
+}
+
 async function modelInfo(page) {
-  const model = await fetchModel(page.host, page.modelId);
+  const model = await fetchModelAny(page.host, page.modelId);
   const { conn } = await load();
   let owned = {};
   if (conn.ok) {
@@ -234,14 +277,16 @@ async function badges(ids) {
   return Object.fromEntries(ids.map(String).filter((id) => badgeCache.has(id)).map((id) => [id, badgeCache.get(id).v]));
 }
 
-// The file to get for a model when there's no time to choose (a collection): the best for this PC,
-// else the newest version's primary file.
-async function bestFile(host, modelId) {
+// The file to get for a model when there's no time to choose (a collection, an update, a right-click): the
+// best for this PC, else the newest version's primary file. versionId: that version (an update, a version link).
+async function bestFile(host, modelId, versionId = null) {
   const info = await modelInfo({ host, modelId });
   const m = info.model;
-  if (!m.downloadable) return { skip: `${m.type || "This"} isn't a model ComfyUI loads` };
-  const v = (info.rec && m.versions.find((x) => x.id === info.rec.versionId)) || m.versions.find((x) => x.files.length);
-  const f = v && ((info.rec && v.files.find((x) => x.id === info.rec.fileId)) || v.files.find((x) => x.primary) || v.files[0]);
+  if (!m.downloadable) return { skip: `${m.type || "This"} isn't a model ComfyUI loads`, name: m.name };
+  const asked = versionId ? m.versions.find((x) => x.id === Number(versionId)) : null;
+  if (versionId && !asked) return { skip: "That version isn't on CivitAI any more", name: m.name };
+  const v = asked || (info.rec && m.versions.find((x) => x.id === info.rec.versionId)) || m.versions.find((x) => x.files.length);
+  const f = v && ((info.rec && info.rec.versionId === v.id && v.files.find((x) => x.id === info.rec.fileId)) || v.files.find((x) => x.primary) || v.files[0]);
   if (!f) return { skip: "No file to download" };
   if ((info.owned[String(v.id)] || {}).status === "have") return { have: true, name: m.name };
   return { item: { versionId: v.id, fileId: f.id, title: `${m.name} — ${v.name}`, file: f.name, size: f.size,
@@ -271,17 +316,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       case "prompto": return withComfy((base) => comfy.api(base, "/prompto/captures", { raw: true, method: "POST",
         body: { kind: "recipe", source: "Model Librarian for Chrome", title: msg.recipe.title || "Recipe", recipe: msg.recipe, thumb: msg.thumb } }));
       case "badges": return badges(msg.modelIds || []);
-      case "getModels": { // a collection: each model's best file, queued
-        const out = [];
-        for (const id of (msg.modelIds || []).slice(0, 100)) {
-          try {
-            const r = await bestFile(msg.host, id);
-            if (r.item) { const q = await withQueue((qq) => Q.enqueue(qq, r.item)); out.push({ id, queued: q.added, name: r.name }); }
-            else out.push({ id, ...r });
-          } catch (e) { out.push({ id, error: e.message }); }
-        }
+      case "getModels": { // a collection (or its updates): queued one by one in the background, progress in storage
+        const items = (msg.items || (msg.modelIds || []).map((id) => ({ id }))).slice(0, 200).map((x) => ({ id: String(x.id), versionId: x.versionId || null }));
+        await chrome.storage.local.set({ collect: { started: Date.now(), host: msg.host, page: msg.page || "", what: msg.what || "models",
+          total: items.length, pending: items, results: [] } });
+        runCollect();
+        return { started: true, total: items.length };
+      }
+      case "getUpdate": { // the newer version a badge points at: its best file
+        const r = await bestFile(msg.host, msg.modelId, msg.versionId);
+        if (!r.item) return r;
+        const q = await withQueue((qq) => Q.enqueue(qq, r.item));
         pump();
-        return { results: out };
+        return { queued: q.added, name: r.name, title: r.item.title };
       }
       case "saveForLater": return locked(async () => {
         const { saved = [] } = await chrome.storage.local.get({ saved: [] });
@@ -297,7 +344,29 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return { ok: true, item: out.item, added: out.added };
       }
       case "state": return load();
-      case "retry": await withQueue((q) => ({ queue: Q.retry(q, msg.key) })); pump(); return { ok: true };
+      case "retry": { // in Model Librarian when it still has the download (it carries on from where it stopped)
+        const { queue, conn } = await load();
+        const x = queue.find((i) => i.key === msg.key);
+        if (x && x.jobId && x.status === "error") {
+          try {
+            const r = await comfy.api(x.base || conn.base, `/jobs/${encodeURIComponent(x.jobId)}/retry`, { method: "POST" });
+            if (r && r.job) { await withQueue((q) => ({ queue: Q.resumed(q, x.key, r.job) })); pump(); return { ok: true, resumed: true }; }
+          } catch {} // not there any more: sent again from the start
+        }
+        await withQueue((q) => ({ queue: Q.retry(q, msg.key) }));
+        pump();
+        return { ok: true };
+      }
+      case "cancel": { // stop it in Model Librarian too, not just here
+        const { queue, conn } = await load();
+        const x = queue.find((i) => i.key === msg.key);
+        if (x && x.jobId && x.status === "downloading") {
+          try { await comfy.api(x.base || conn.base, `/jobs/${encodeURIComponent(x.jobId)}/cancel`, { method: "POST" }); }
+          catch (e) { if (e.status !== 404) return { error: `Model Librarian didn't cancel it: ${e.message}` }; }
+        }
+        await withQueue((q) => ({ queue: Q.cancel(q, msg.key) }));
+        return { ok: true };
+      }
       case "schedule": await withQueue((q) => ({ queue: Q.schedule(q, msg.key, msg.until, msg.why) })); return { ok: true };
       case "remove": await withQueue((q) => ({ queue: Q.remove(q, msg.key) })); return { ok: true };
       case "clear": await withQueue((q) => ({ queue: Q.clearFinished(q) })); return { ok: true };
@@ -335,9 +404,35 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   return true; // answers asynchronously
 });
 
+// ---------------------------------------------------------------- right-click a CivitAI model link
+const LINKS = ["https://civitai.com/models/*", "https://civitai.green/models/*", "https://civitai.red/models/*"];
+function setupMenu() {
+  if (!chrome.contextMenus) return;
+  chrome.contextMenus.removeAll(() => chrome.contextMenus.create({ id: "ml-download", title: "Download with Model Librarian", contexts: ["link"], targetUrlPatterns: LINKS }));
+}
+
+async function downloadLink(url) {
+  let u;
+  try { u = new URL(url); } catch { return; }
+  const m = u.pathname.match(/^\/models\/(\d+)/);
+  if (!m) return;
+  let r;
+  try { r = await bestFile(u.hostname, m[1], u.searchParams.get("modelVersionId")); } catch (e) { r = { error: e.message }; }
+  let title, message;
+  if (r.item) {
+    const q = await withQueue((qq) => Q.enqueue(qq, r.item));
+    pump();
+    title = q.added ? "Queued for Model Librarian" : "Already in the download list";
+    message = r.item.title + (r.best ? " (best file for your PC)" : "");
+  } else if (r.have) { title = "Already in your library"; message = r.name || ""; }
+  else { title = "Couldn't queue it"; message = `${r.name ? r.name + ": " : ""}${r.skip || r.error || ""}`; }
+  chrome.notifications?.create(`ml-menu-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png", title, message: String(message) });
+}
+chrome.contextMenus?.onClicked.addListener((info) => { if (info.menuItemId === "ml-download" && info.linkUrl) downloadLink(info.linkUrl); });
+
 // ---------------------------------------------------------------- wake-ups
-chrome.runtime.onInstalled.addListener(() => { setupRules(); pump(); });
-chrome.runtime.onStartup.addListener(() => { setupRules(); pump(); });
+chrome.runtime.onInstalled.addListener(() => { setupRules(); setupMenu(); pump(); });
+chrome.runtime.onStartup.addListener(() => { setupRules(); setupMenu(); pump(); });
 chrome.alarms.create("pump", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === "pump") pump(); });
 chrome.tabs.onUpdated.addListener((_id, info, tab) => {

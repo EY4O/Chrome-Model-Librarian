@@ -42,7 +42,9 @@ Load the folder unpacked (`chrome://extensions` → Developer mode → Load unpa
 node --test
 ```
 
-Node 20+. The tests cover the queue, CivitAI parsing and the ComfyUI client with fake responses; the end-to-end check (headless Edge with the extension loaded, against a test ComfyUI) is run by hand.
+Node 20+. The tests cover the queue, CivitAI parsing and the ComfyUI client with fake responses.
+
+`python tests/e2e_features.py` runs the extension in headless Edge on the staged pages below (sample CivitAI pages and a recording sample Model Librarian; never real sites): the **↑ Get update** badge (and the lookup through Model Librarian when CivitAI's public API won't show a model), a collection's background job, the popup's Cancel and Retry in Model Librarian, and the right-click menu. It needs what `make_media.py` needs.
 
 ## README screenshots
 
