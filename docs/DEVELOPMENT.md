@@ -13,6 +13,9 @@
 | `lib/civitai.js` | CivitAI model pages and API (tested). |
 | `lib/fit.js` | Which file suits this PC: format from the file name, verdict and score per file, the recommendation (tested). |
 | `lib/comfy.js` | Talking to Model Librarian: direct, or through an open ComfyUI tab (tested). |
+| `lib/gallery.js` | Saving pictures for Model Librarian Gallery: names, full-size addresses, the `.mlg.json` note (tested). |
+| `content/gallery.js` | On the sites it knows: the **Save** button on pictures, and each site's reader (the post's full pictures, artist, title, tags) for it, the right-click menu and the popup. |
+| `offscreen.html/js` | Holds a Pixiv original (fetched with Pixiv as the referrer) as a `blob:` URL for `chrome.downloads`, which can't send a referrer. |
 | `tools/make_icons.py` | Toolbar icons from `docs/images/icon.png`. |
 | `tools/media/make_media.py` | README screenshots on staged pages (see below). |
 
@@ -43,6 +46,8 @@ node --test
 ```
 
 Node 20+. The tests cover the queue, CivitAI parsing and the ComfyUI client with fake responses.
+
+`python tests/e2e_gallery.py` runs saving pictures in headless Edge on staged copies of Pixiv (whose originals refuse a request without its referrer), X, Danbooru, Gelbooru, DeviantArt and Pawchive: the **Save** button, the note beside each picture, **Save from this page**, and the right-click menu. Downloads go to a throwaway folder (the profile's download folder: Edge's DevTools download override would rename the files).
 
 `python tests/e2e_features.py` runs the extension in headless Edge on the staged pages below (sample CivitAI pages and a recording sample Model Librarian; never real sites): the **↑ Get update** badge (and the lookup through Model Librarian when CivitAI's public API won't show a model), a collection's background job, the popup's Cancel and Retry in Model Librarian, and the right-click menu. It needs what `make_media.py` needs.
 

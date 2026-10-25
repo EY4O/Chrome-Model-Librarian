@@ -96,6 +96,39 @@ async function drawLater() {
 async function refresh() { const st = await send({ type: "state" }); if (st && st.conn) render(st); drawLater(); }
 async function check() { const st = await send({ type: "pump" }); if (st && st.conn) render(st); else refresh(); }
 
+// ---------------------------------------------------------------- Save from this page (for Model Librarian Gallery)
+// the post's pictures (a known site: full size, with the artist) or the page's big pictures, all ticked: untick, then save
+let picks = [];
+function drawPicks() {
+  $("galleryList").replaceChildren(...picks.map((p, i) => h("label", { class: "pick" + (p.on ? " on" : ""), title: p.item.name || p.item.src },
+    h("input", { type: "checkbox", checked: p.on, onchange: (e) => { picks[i].on = e.target.checked; drawPicks(); } }),
+    h("img", { src: p.item.thumb || p.item.src, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }))));
+  const n = picks.filter((p) => p.on).length;
+  $("gallerySave").textContent = n ? `Save ${n}` : "Save";
+  $("gallerySave").disabled = !n;
+}
+$("galleryPick").onclick = async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  $("galleryMsg").textContent = "Looking at the page…";
+  const r = tab ? await send({ type: "galleryPage", tabId: tab.id }) : null;
+  picks = ((r && r.items) || []).map((item) => ({ item, on: true }));
+  $("galleryList").hidden = $("galleryActs").hidden = !picks.length;
+  $("galleryMsg").textContent = !picks.length ? (r && r.error) || "No pictures to save on this page."
+    : r.known ? `${picks.length} from this post, full size, with the artist and tags.` : `${picks.length} pictures on this page.`;
+  drawPicks();
+};
+$("galleryAll").onclick = () => { picks.forEach((p) => { p.on = true; }); drawPicks(); };
+$("galleryNone").onclick = () => { picks.forEach((p) => { p.on = false; }); drawPicks(); };
+$("gallerySave").onclick = async () => {
+  const items = picks.filter((p) => p.on).map((p) => p.item);
+  $("gallerySave").disabled = true;
+  $("galleryMsg").textContent = `Saving ${items.length}…`;
+  const r = await send({ type: "gallerySave", items });
+  $("galleryMsg").textContent = r && r.saved ? `Saved ${r.saved}${r.failed && r.failed.length ? `; ${r.failed.length} didn't (${r.failed[0].error})` : ""}. They're in the Gallery's New downloads.`
+    : `Didn't save: ${(r && r.error) || "something went wrong"}`;
+  $("gallerySave").disabled = false;
+};
+
 $("clear").onclick = () => send({ type: "clear" }).then(refresh);
 $("save").onclick = async () => {
   let base = "";

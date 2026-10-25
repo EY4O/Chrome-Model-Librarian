@@ -6,8 +6,10 @@ import * as comfy from "./lib/comfy.js";
 import * as Q from "./lib/queue.js";
 import { fetchModel, normalizeModel } from "./lib/civitai.js";
 import { assess, recommend, gpuName, needsTextEncoder, textEncoderOf } from "./lib/fit.js";
+import { FOLDER, NOTE, fileNameFor, fullSize, noteFor } from "./lib/gallery.js";
 
 const RULE_ID = 1;
+const PIXIV_RULE = 2;  // Pixiv's originals only come with Pixiv as the referrer
 
 // ---------------------------------------------------------------- storage
 const DEFAULT_SETTINGS = { base: "", saved: [], withNeeds: true, notify: true };
@@ -88,11 +90,15 @@ function setupRules() {
 async function applyRules() {
   try {
     await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: [RULE_ID],
+      removeRuleIds: [RULE_ID, PIXIV_RULE],
       addRules: [{
         id: RULE_ID, priority: 1,
         action: { type: "modifyHeaders", requestHeaders: [{ header: "origin", operation: "remove" }] },
         condition: { initiatorDomains: [chrome.runtime.id], requestDomains: ["127.0.0.1", "localhost"], resourceTypes: ["xmlhttprequest"] },
+      }, {
+        id: PIXIV_RULE, priority: 1,
+        action: { type: "modifyHeaders", requestHeaders: [{ header: "referer", operation: "set", value: "https://www.pixiv.net/" }] },
+        condition: { initiatorDomains: [chrome.runtime.id], requestDomains: ["i.pximg.net"], resourceTypes: ["xmlhttprequest", "image"] },
       }],
     });
   } catch (e) {
@@ -293,10 +299,115 @@ async function bestFile(host, modelId, versionId = null) {
     pageUrl: `https://${host}/models/${m.id}?modelVersionId=${v.id}` }, name: m.name, best: !!info.rec };
 }
 
+// ---------------------------------------------------------------- saving pictures for Model Librarian Gallery
+// Each picture goes into Downloads\Model Librarian Gallery, and beside it <its name>.mlg.json: the page it's from, the
+// artist, the title and the tags, which the Gallery's New downloads reads as it files it. Nothing needs the Gallery to be
+// open. Chrome's download bubble is kept quiet meanwhile (two files a picture would fill it).
+function downloaded(id, timeout = 5 * 60 * 1000) {
+  return new Promise((resolve, reject) => {
+    // (asked every few seconds too: a call to Chrome keeps this worker alive through a slow download, where waiting
+    // for an event alone may see it stopped; and an event missed is caught)
+    const poll = setInterval(() => check().catch(() => {}), 5000);
+    const done = (fn, v) => { chrome.downloads.onChanged.removeListener(watch); clearTimeout(t); clearInterval(poll); fn(v); };
+    const check = async () => {
+      const [d] = await chrome.downloads.search({ id });
+      if (!d) return done(reject, new Error("The download went away"));
+      if (d.state === "complete") return done(resolve, d);
+      if (d.state === "interrupted") return done(reject, new Error(d.error ? `Couldn't download it (${d.error.toLowerCase().replace(/_/g, " ")})` : "Couldn't download it"));
+    };
+    const watch = (delta) => { if (delta.id === id && delta.state) check(); };
+    const t = setTimeout(() => done(reject, new Error("The download took too long")), timeout);
+    chrome.downloads.onChanged.addListener(watch);
+    check();
+  });
+}
+
+// a site that only gives its originals with itself as the referrer (a download can't send one: Chrome won't let it)
+const REFERRED = /^https:\/\/i\.pximg\.net\//;
+let offscreen = null;  // the page being made (two saves at once wait for the same one)
+async function hold(url) {
+  if (!(await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] })).length) {
+    offscreen ||= chrome.offscreen.createDocument({ url: "offscreen.html", reasons: ["BLOBS"], justification: "Hold a picture fetched with its site's referrer for the downloader" })
+      .catch((e) => { if (!/single offscreen/i.test(e.message)) throw e; }).finally(() => { offscreen = null; });
+    await offscreen;
+  }
+  const r = await chrome.runtime.sendMessage({ target: "offscreen", type: "hold", url });
+  if (!r || r.error) throw new Error(r && r.error ? `Couldn't get it: ${r.error}` : "Couldn't get it");
+  return r.url;
+}
+
+let quiet = 0;  // saves under way: the download bubble comes back when the last one ends
+chrome.downloads.setUiOptions?.({ enabled: true }).catch(() => {});  // (a worker stopped mid-save left it off: back on as it starts again)
+async function hush(on) {
+  quiet += on ? 1 : -1;
+  try { await chrome.downloads.setUiOptions({ enabled: quiet <= 0 }); } catch {}
+}
+
+async function gallerySave(items) {
+  const list = (Array.isArray(items) ? items : []).filter((it) => it && /^https?:\/\//.test(String(it.src || ""))).slice(0, 200);
+  if (!list.length) return { saved: 0, failed: [], error: "Nothing to save" };
+  await setupRules();
+  await hush(true);
+  let saved = 0;
+  const failed = [];
+  try {
+    for (const [i, raw] of list.entries()) {
+      const it = { ...raw, src: fullSize(raw.src) };
+      try {
+        const held = REFERRED.test(it.src) ? await hold(it.src) : null;  // (Pixiv: fetched with its referrer, then downloaded from here)
+        const release = () => { if (held) chrome.runtime.sendMessage({ target: "offscreen", type: "release", url: held }).catch(() => {}); };
+        const id = await chrome.downloads.download({ url: held || it.src, filename: `${FOLDER}/${fileNameFor(it, list.length > 1 && !it.name ? i : 0)}`,
+          conflictAction: "uniquify", saveAs: false }).catch((e) => { release(); throw e; });
+        const d = await downloaded(id).finally(release);
+        const base = d.filename.split(/[\\/]/).pop();
+        const note = JSON.stringify(noteFor(it));
+        const noteId = await chrome.downloads.download({ url: `data:application/json;charset=utf-8,${encodeURIComponent(note)}`,
+          filename: `${FOLDER}/${base}${NOTE}`, conflictAction: "overwrite", saveAs: false });
+        await downloaded(noteId);
+        chrome.downloads.erase({ id: noteId }).catch(() => {});  // (out of Chrome's list: they're the Gallery's now)
+        chrome.downloads.erase({ id }).catch(() => {});
+        saved++;
+      } catch (e) {
+        failed.push({ src: it.src, error: e.message });
+      }
+    }
+  } finally {
+    await hush(false);
+  }
+  return { saved, failed, error: !saved && failed.length ? failed[0].error : undefined };
+}
+
+// The pictures of the page in the tab: a known site's reader says (the post's pictures, full size, with their artist);
+// elsewhere, the big pictures on the page (the popup asks, so the tab can be read: activeTab).
+async function galleryPage(tabId) {
+  try {
+    const r = await chrome.tabs.sendMessage(tabId, { type: "galleryPage" });
+    if (r && r.items && r.items.length) return r;
+  } catch {} // no reader on this page
+  const [{ result } = {}] = await chrome.scripting.executeScript({ target: { tabId }, func: () => {
+    const seen = new Set();
+    return [...document.images].filter((i) => i.naturalWidth >= 300 && i.naturalHeight >= 200 && /^https?:/.test(i.currentSrc || i.src))
+      .map((i) => ({ src: i.currentSrc || i.src, thumb: i.src, page: location.href, title: document.title }))
+      .filter((x) => !seen.has(x.src) && seen.add(x.src)).slice(0, 100);
+  } }).catch(() => [{}]);
+  return { items: result || [], known: false };
+}
+
+// a picture right-clicked: what the site's reader knows of it, else the picture and its page
+async function saveImage(src, tab) {
+  let items = null;
+  if (tab && tab.id != null) items = await chrome.tabs.sendMessage(tab.id, { type: "galleryItemsFor", src }).catch(() => null);
+  if (!Array.isArray(items) || !items.length) items = [{ src, page: tab && tab.url, title: tab && tab.title }];
+  const r = await gallerySave(items);
+  chrome.notifications?.create(`ml-gallery-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png",
+    title: r.saved ? `Saved for Model Librarian Gallery${r.saved > 1 ? ` (${r.saved})` : ""}` : "Didn't save it",
+    message: r.saved ? `${items[0].artist ? `By ${items[0].artist}. ` : ""}It's in the Gallery's New downloads, ready to file.` : String(r.error || "") });
+}
+
 // ---------------------------------------------------------------- messages from the page and the popup
-const POPUP_ONLY = new Set(["settings", "clear", "remove", "scan"]);
+const POPUP_ONLY = new Set(["settings", "clear", "remove", "scan", "galleryPage"]);
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
-  if (sender.id !== chrome.runtime.id) return false;
+  if (sender.id !== chrome.runtime.id || (msg && msg.target === "offscreen")) return false;
   // the extension's own pages (the popup, even opened in a tab) vs. its scripts running inside web pages
   const fromPage = !String(sender.url || "").startsWith(`chrome-extension://${chrome.runtime.id}/`);
   if (fromPage && msg && POPUP_ONLY.has(msg.type)) { reply({ error: "not from a page" }); return false; }
@@ -344,6 +455,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return { ok: true, item: out.item, added: out.added };
       }
       case "state": return load();
+      case "gallerySave": return gallerySave(msg.items);
+      case "galleryPage": return galleryPage(msg.tabId);
       case "retry": { // in Model Librarian when it still has the download (it carries on from where it stopped)
         const { queue, conn } = await load();
         const x = queue.find((i) => i.key === msg.key);
@@ -408,7 +521,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 const LINKS = ["https://civitai.com/models/*", "https://civitai.green/models/*", "https://civitai.red/models/*"];
 function setupMenu() {
   if (!chrome.contextMenus) return;
-  chrome.contextMenus.removeAll(() => chrome.contextMenus.create({ id: "ml-download", title: "Download with Model Librarian", contexts: ["link"], targetUrlPatterns: LINKS }));
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: "ml-download", title: "Download with Model Librarian", contexts: ["link"], targetUrlPatterns: LINKS });
+    chrome.contextMenus.create({ id: "ml-gallery", title: "Save to Model Librarian Gallery", contexts: ["image"] });
+  });
 }
 
 async function downloadLink(url) {
@@ -428,7 +544,10 @@ async function downloadLink(url) {
   else { title = "Couldn't queue it"; message = `${r.name ? r.name + ": " : ""}${r.skip || r.error || ""}`; }
   chrome.notifications?.create(`ml-menu-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png", title, message: String(message) });
 }
-chrome.contextMenus?.onClicked.addListener((info) => { if (info.menuItemId === "ml-download" && info.linkUrl) downloadLink(info.linkUrl); });
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "ml-download" && info.linkUrl) downloadLink(info.linkUrl);
+  if (info.menuItemId === "ml-gallery" && info.srcUrl) saveImage(info.srcUrl, tab);
+});
 
 // ---------------------------------------------------------------- wake-ups
 chrome.runtime.onInstalled.addListener(() => { setupRules(); setupMenu(); pump(); });

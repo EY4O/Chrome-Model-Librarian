@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Model Librarian",
-  "version": "0.5.0",
-  "description": "One-click downloads from CivitAI, HuggingFace and CivArchive into your ComfyUI, sorted and SHA256-verified by Model Librarian. Waits for ComfyUI when it's closed.",
+  "version": "0.6.0",
+  "description": "One-click downloads from CivitAI, HuggingFace and CivArchive into your ComfyUI, sorted and SHA256-verified by Model Librarian; and pictures saved for Model Librarian Gallery with their artist, title and tags.",
   "minimum_chrome_version": "121",
   "icons": {
     "16": "icons/icon16.png",
@@ -16,14 +16,32 @@
     "scripting",
     "declarativeNetRequestWithHostAccess",
     "notifications",
-    "contextMenus"
+    "contextMenus",
+    "downloads",
+    "downloads.ui",
+    "activeTab",
+    "offscreen"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
     "https://civitai.com/*",
     "https://civitai.green/*",
-    "https://civitai.red/*"
+    "https://civitai.red/*",
+    "https://www.pixiv.net/*",
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "https://mobile.twitter.com/*",
+    "https://www.deviantart.com/*",
+    "https://danbooru.donmai.us/*",
+    "https://gelbooru.com/*",
+    "https://safebooru.org/*",
+    "https://yande.re/*",
+    "https://konachan.com/*",
+    "https://konachan.net/*",
+    "https://e621.net/*",
+    "https://pawchive.pw/*",
+    "https://i.pximg.net/*"
   ],
   "optional_host_permissions": [
     "http://*/*",
@@ -55,6 +73,27 @@
         "content/sites.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.pixiv.net/*",
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.twitter.com/*",
+        "https://www.deviantart.com/*",
+        "https://danbooru.donmai.us/*",
+        "https://gelbooru.com/*",
+        "https://safebooru.org/*",
+        "https://yande.re/*",
+        "https://konachan.com/*",
+        "https://konachan.net/*",
+        "https://e621.net/*",
+        "https://pawchive.pw/*"
+      ],
+      "js": [
+        "content/gallery.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -75,8 +114,21 @@
         "https://civitai.com/*",
         "https://civitai.green/*",
         "https://civitai.red/*",
+        "https://danbooru.donmai.us/*",
+        "https://e621.net/*",
+        "https://gelbooru.com/*",
         "https://huggingface.co/*",
-        "https://www.civarchive.com/*"
+        "https://konachan.com/*",
+        "https://konachan.net/*",
+        "https://mobile.twitter.com/*",
+        "https://pawchive.pw/*",
+        "https://safebooru.org/*",
+        "https://twitter.com/*",
+        "https://www.civarchive.com/*",
+        "https://www.deviantart.com/*",
+        "https://www.pixiv.net/*",
+        "https://x.com/*",
+        "https://yande.re/*"
       ]
     }
   ]

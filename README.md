@@ -25,6 +25,7 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 - 🖱️ **Right-click any model link** — **Download with Model Librarian** on a CivitAI model link queues its best file for your PC, without opening the page.
 - ⏳ **Queue while ComfyUI is closed** — clicks wait in the extension and start when ComfyUI is reachable; the popup shows progress, with **Cancel** and **Retry** that act in Model Librarian itself, and a notification says when each download is done.
 - 📚 **Collections and save for later** — get every missing model of a CivitAI collection (the best file of each), or star a model to come back to.
+- 🖼️ **Save pictures for Model Librarian Gallery** — right-click any picture (**Save to Model Librarian Gallery**), use the **Save** button on pictures on Pixiv, X, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621 and Pawchive, or pick from a post's pictures in the popup (**Save from this page**). Each is saved full size into `Downloads\Model Librarian Gallery` with a note of its page, artist, title and tags, which the Gallery's **New downloads** files with it. The Gallery needn't be open.
 - 🖥️ **Works with Comfy Desktop, and several ComfyUIs** — talks to ComfyUI directly (no browser tab needed); pick which ComfyUI gets the downloads, including one on another PC (e.g. over Tailscale).
 - 🔒 **Keys stay home** — CivitAI and HuggingFace keys live in Model Librarian; the extension never sees them. A model CivitAI only shows to signed-in users is looked up through Model Librarian, with your key, so it still works.
 
@@ -143,11 +144,21 @@ Model Librarian decides, from CivitAI's details of that version: the folder for 
 </details>
 
 <details>
+<summary><b>🖼️ Saving pictures for Model Librarian Gallery</b></summary>
+
+- **Right-click** any picture, on any site: **Save to Model Librarian Gallery**. On the sites below it's saved as the post has it; elsewhere, as the page shows it, with the page's address and title.
+- On **Pixiv, X, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621 and Pawchive**, a **Save** button appears on the pictures you rest the mouse on. The extension reads the post: the full-size original (Pixiv's original file, X's original size, DeviantArt's full view, a booru's original, Pawchive's file rather than its thumbnail), the artist and their page, the title and text, and the tags. Pixiv only gives its originals with Pixiv as the referrer, so those are fetched by the extension first and then saved.
+- **Save from this page** (in the toolbar popup) shows the post's pictures (every page of a Pixiv set), all ticked: untick any, then **Save**. On other sites it lists the page's big pictures.
+- Each picture lands in `Downloads\Model Librarian Gallery`, under a name the Gallery reads the artist from where the site has one (`12345678_p0.png`, `…_by_artist_d1a2b3c.png`, `__…_drawn_by_artist__md5.png`, `handle-id-date-img1.jpg`), and beside it `<name>.mlg.json`: the page, the artist and their page, the title, the text and the tags. Model Librarian Gallery (1.7.0 or newer) offers that folder in **New downloads**; filing a picture gives it its artist and source, the tags (marked as from the site) and the title as its note, and the note file goes. If Chrome saves somewhere other than your Downloads folder, add that folder's `Model Librarian Gallery` to the Gallery's **Settings → New downloads**.
+</details>
+
+<details>
 <summary><b>🔒 Privacy and permissions</b></summary>
 
 - **civitai.com / .green / .red, huggingface.co, civarchive.com** — to show the panel; CivitAI's public API is read for model versions and files.
 - **127.0.0.1 / localhost** — to reach Model Librarian in ComfyUI. Another address is asked for when you save it.
-- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **contextMenus** — **Download with Model Librarian** on CivitAI model links. **scripting** — the fallback through an open ComfyUI tab. **declarativeNetRequestWithHostAccess** — the header rule above.
+- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **contextMenus** — **Download with Model Librarian** on CivitAI model links, **Save to Model Librarian Gallery** on pictures. **scripting** — the fallback through an open ComfyUI tab, and **Save from this page** on sites it doesn't know. **declarativeNetRequestWithHostAccess** — the header rule above, and Pixiv's referrer for its originals.
+- **Pixiv, X, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621, Pawchive (and i.pximg.net)** — to read a post's pictures, artist and tags for saving, and to show the **Save** button. **downloads, downloads.ui** — to save pictures into `Downloads\Model Librarian Gallery` (Chrome's download bubble is kept quiet while it does). **activeTab** — **Save from this page** on the tab you're looking at. **offscreen** — a page with no window that holds a Pixiv original for the downloader.
 
 Nothing is sent anywhere else, and the extension stores no keys.
 </details>
