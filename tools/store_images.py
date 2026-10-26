@@ -3,7 +3,7 @@ docs/images/ (staged pages with sample data, see tools/media/make_media.py).
 
   python tools/store_images.py
 
-Screenshots are 1280x800, the small promo tile 440x280, the store icon 128x128.
+Screenshots are 1280x800, the small promo tile 440x280, the marquee tile 1400x560, the store icon 128x128.
 Needs Pillow and Windows' Segoe UI.
 """
 import pathlib
@@ -93,11 +93,28 @@ def promo():
     tile.save(OUT / "promo-small.png")
 
 
+def marquee():
+    tile = Image.new("RGB", (1400, 560), BG)
+    d = ImageDraw.Draw(tile)
+    panel = fit(Image.open(SRC / "panel-best.png").convert("RGB"), 560, 500)
+    tile.paste(panel, (1400 - 72 - panel.width, (560 - panel.height) // 2))
+    icon = Image.open(ROOT / "icons" / "icon128.png").convert("RGBA")
+    tile.paste(icon, (72, 120), icon)
+    d.text((72, 272), "Model Librarian", font=font(64, True), fill=INK)
+    y = 364
+    for line in wrap(d, "One click on CivitAI puts the right file in the right ComfyUI folder.", font(28), 600):
+        d.text((74, y), line, font=font(28), fill=QUIET)
+        y += 40
+    d.text((74, 500), "Sample data", font=font(16), fill=QUIET)
+    tile.save(OUT / "promo-marquee.png")
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     for n, (src, title, body) in enumerate(SLIDES, 1):
         slide(src, title, body, n)
     promo()
+    marquee()
     shutil.copy(ROOT / "icons" / "icon128.png", OUT / "icon-128.png")
     for p in sorted(OUT.glob("*.png")):
         print(p.relative_to(ROOT), Image.open(p).size)

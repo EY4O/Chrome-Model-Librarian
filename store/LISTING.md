@@ -58,6 +58,7 @@ CivitAI and HuggingFace keys live in Model Librarian, never in the extension. No
 | Screenshot 4: "Waits until ComfyUI is ready." The popup's queue | `screenshot-4.png` | 1280×800 |
 | Screenshot 5: "HuggingFace and CivArchive too." The HuggingFace panel | `screenshot-5.png` | 1280×800 |
 | Small promo tile | `promo-small.png` | 440×280 |
+| Marquee promo tile | `promo-marquee.png` | 1400×560 |
 
 The screenshots use the README captures in `docs/images/`, taken on staged pages with sample data (not real CivitAI or HuggingFace content).
 
