@@ -1,0 +1,67 @@
+name: Bug report
+description: Something in Model Librarian for Chrome doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting it. Questions and ideas are welcome in [Discussions](https://github.com/EY4O/Chrome-Model-Librarian/discussions) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      placeholder: e.g. 0.6.0 (shown on chrome://extensions)
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Chrome
+        - Edge
+        - Brave
+        - Other Chromium browser
+    validations:
+      required: true
+  - type: input
+    id: ml-version
+    attributes:
+      label: Model Librarian version in ComfyUI
+      placeholder: e.g. 1.23.0
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page it happened on
+      placeholder: e.g. a CivitAI model page URL
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Errors
+      description: From the extension's card on chrome://extensions (Errors), or the page's console.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, or anything that might help.
