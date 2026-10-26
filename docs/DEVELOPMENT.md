@@ -61,4 +61,4 @@ Writes `docs/images/*.png` (except the icon) from staged pages: a local HTTPS se
 
 ## Releasing
 
-Bump `version` in `manifest.json`, commit, push. Users reload the unpacked extension. (Not published to the Chrome Web Store.)
+Bump `version` in `manifest.json`, commit, push. Users of the unpacked extension reload it. For the stores, `python tools/package.py` builds the upload ZIP and `store/LISTING.md` has every field of the listing.
