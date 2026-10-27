@@ -412,6 +412,8 @@ async function saveImage(src, tab) {
 const CHAR_POSTS = ["https://danbooru.donmai.us/posts/*", "https://safebooru.donmai.us/posts/*", "https://e621.net/posts/*", "https://e926.net/posts/*",
   "https://gelbooru.com/index.php*", "https://safebooru.org/index.php*"];
 const E_SITES = ["e621", "e926"];
+const LOOKS_ASKED = 6;   // characters of one post whose look is asked of Danbooru
+const LOOKS_KEPT = 300;  // looks remembered (each for a week)
 
 // your characters by tag: Model Librarian's list when it's there (else as last heard), and the ones left for the Gallery since
 async function knownCharacters() {
@@ -429,16 +431,22 @@ async function charDraft(msg) {
   const where = B.postOf(msg.url);
   if (!where) return { error: "This isn't a post Model Librarian can read" };
   const post = where.page ? B.postFromGroups(where, msg.groups || {}) : E_SITES.includes(where.site) ? await B.fetchE621(where) : await B.fetchDanbooru(where);
-  const looks = {}, failed = [];
+  const looks = {}, failed = [], skipped = [];
   if (!E_SITES.includes(post.site)) {  // (e621's characters aren't Danbooru's: the post alone says)
     const { looks: cache } = await chrome.storage.local.get({ looks: {} });
     for (const [k, v] of Object.entries(cache)) if (!v || Date.now() - v.at > B.LOOK_DAYS * 864e5) delete cache[k];
-    for (const t of post.characters.slice(0, 6)) {
-      try { looks[t] = await B.fetchLook(t, cache); } catch { looks[t] = null; failed.push(t); }
+    // the one clicked first, then the others, up to LOOKS_ASKED (a group post would be many slow requests)
+    const clicked = post.characters.filter((t) => msg.tag && B.norm(t) === B.norm(msg.tag));
+    const order = [...clicked, ...post.characters.filter((t) => !clicked.includes(t))];
+    let busy = false;
+    for (const [i, t] of order.entries()) {
+      if (i >= LOOKS_ASKED || busy) { skipped.push(t); continue; }
+      try { looks[t] = await B.fetchLook(t, cache); } catch (e) { looks[t] = null; failed.push(t); busy = e.status === 429; }  // (too many requests: no more now)
     }
-    await chrome.storage.local.set({ looks: cache });
+    const kept = Object.entries(cache).sort((a, b) => b[1].at - a[1].at).slice(0, LOOKS_KEPT);
+    await chrome.storage.local.set({ looks: Object.fromEntries(kept) });
   }
-  return { post, drafts: B.draftsFor(post, looks, await knownCharacters(), msg.tag), failed };
+  return { post, drafts: B.draftsFor(post, looks, await knownCharacters(), msg.tag), failed, skipped };
 }
 
 // a post's preview as a small picture (256 px at most) for the character, as a data: URL
@@ -477,17 +485,25 @@ async function charSave(msg) {
   const where = B.postOf(String(post.url || ""));
   if (!where || !Array.isArray(msg.drafts)) return { error: "Nothing to save" };
   const from = { ...post, site: where.site, id: where.id };  // (the post's own address says which)
-  const picture = /^https:\/\//.test(post.preview || "") && B.isGeneral(from) ? await smallPicture(post.preview).catch(() => null) : null;
+  const preview = B.pictureFrom(post.preview);  // (only from the booru's own picture servers)
+  const picture = preview && B.isGeneral(from) ? await smallPicture(preview).catch(() => null) : null;
   const results = [];
   for (const d of msg.drafts.slice(0, 12)) {
     if (!d || !Array.isArray(d.buckets) || !d.tag) continue;
     const character = B.importOf(d, from);
     const r = await withComfy((base) => comfy.api(base, "/ext/characters", { method: "POST", body: { character, picture }, timeout: 15000 }));
     if (r && r.character) { results.push({ tag: character.tag, name: r.character.name, where: "ml", created: !!r.created }); continue; }
-    if (r && r.status === 400) { results.push({ tag: character.tag, name: character.name, error: r.error }); continue; }
+    // left for the Gallery only when ComfyUI isn't there (or its Model Librarian is too old to take it): any other answer
+    // is said as it is (a timeout may have saved it after all: filing it twice would make two)
+    const off = !r || r.status === undefined || r.status === 0, old = r && [404, 405].includes(r.status);
+    if (!off && !old) {
+      results.push({ tag: character.tag, name: character.name,
+        error: r.status === -1 ? "Model Librarian didn't answer in time: it may have saved it anyway, so look in Character Select before trying again" : r.error || "Model Librarian couldn't save it" });
+      continue;
+    }
     try {
       await leaveForGallery(character, picture);
-      results.push({ tag: character.tag, name: character.name, where: "gallery", why: r && [404, 405].includes(r.status) ? "update" : "off" });
+      results.push({ tag: character.tag, name: character.name, where: "gallery", why: old ? "update" : "off" });
     } catch (e) {
       results.push({ tag: character.tag, name: character.name, error: `Couldn't leave it for the Gallery: ${e.message}` });
     }
@@ -646,8 +662,23 @@ async function downloadLink(url) {
 chrome.contextMenus?.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "ml-download" && info.linkUrl) downloadLink(info.linkUrl);
   if (info.menuItemId === "ml-gallery" && info.srcUrl) saveImage(info.srcUrl, tab);
-  if (info.menuItemId === "ml-characters" && tab && tab.id != null) chrome.tabs.sendMessage(tab.id, { type: "charOpen" }).catch(() => {});
+  if (info.menuItemId === "ml-characters" && tab && tab.id != null) openCharacters(tab, info.pageUrl || tab.url);
 });
+
+// "Add characters from this post": the page's panel; in a tab opened before the extension was (re)loaded, its script is
+// put in first. A page that isn't a post (Gelbooru's lists share its post pages' address) is told so.
+async function openCharacters(tab, url) {
+  const say = (message) => chrome.notifications?.create(`ml-chars-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png", title: "Add characters", message });
+  if (!B.postOf(url)) return say("Open a post first: this page isn't one.");
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "charOpen" });
+  } catch {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/booru.js"] });
+      await chrome.tabs.sendMessage(tab.id, { type: "charOpen" });
+    } catch (e) { say(`Couldn't open it here: ${e.message}`); }
+  }
+}
 
 // ---------------------------------------------------------------- wake-ups
 chrome.runtime.onInstalled.addListener(() => { setupRules(); setupMenu(); pump(); });

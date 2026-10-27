@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CHAR_NOTE, charFile, charFileName, classify, draftCharacter, draftsFor, fetchDanbooru, fetchE621, fetchLook, importOf, isGeneral, nameFromTag,
-  norm, postFromGroups, postOf } from "../lib/booru.js";
+  norm, pictureFrom, postFromGroups, postOf } from "../lib/booru.js";
 
 // a made-up character, never a real one
 const json = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
@@ -123,4 +123,23 @@ test("what's filed: Model Librarian's import, and the file left for the Gallery"
   assert.equal(charFileName('a:/b?"', 5), "a b 5" + CHAR_NOTE, "a name Windows takes");
   assert.equal(charFileName("..", 5), "character 5" + CHAR_NOTE);
   assert.deepEqual(charFile(imp, null), { v: 1, character: imp, picture: null });
+});
+
+test("a crossover post: the series the tag names, not the first copyright", () => {
+  const post = { ...POST, characters: ["nova (starfall)"], copyrights: ["lighthouse tales", "starfall"] };
+  assert.equal(draftCharacter("nova (starfall)", post, {}).series, "Starfall");
+  assert.equal(draftCharacter("aurelia", { ...post, characters: ["aurelia"] }, {}).series, "Lighthouse Tales", "no brackets: the first");
+});
+
+test("a file name Chrome takes, and pictures only from the boorus' own servers", () => {
+  assert.equal(charFileName("a~b\u200bc\u007fd", 5), "a b c d 5" + CHAR_NOTE);
+  assert.equal(pictureFrom("https://cdn.donmai.us/preview/a.jpg"), "https://cdn.donmai.us/preview/a.jpg");
+  assert.equal(pictureFrom("https://static1.e926.net/data/a.jpg"), "https://static1.e926.net/data/a.jpg");
+  assert.equal(pictureFrom("https://img3.gelbooru.com/samples/a.jpg"), "https://img3.gelbooru.com/samples/a.jpg");
+  assert.equal(pictureFrom("https://evil.example/donmai.us/a.jpg"), null);
+  assert.equal(pictureFrom("http://cdn.donmai.us/a.jpg"), null);
+});
+
+test("Danbooru's 429 is told apart (no more asking for a while)", async () => {
+  await assert.rejects(fetchLook("x", {}, async () => json({}, 429)), (e) => e.status === 429);
 });

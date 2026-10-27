@@ -166,6 +166,10 @@ async def run(check, downloads):
         order = await c.js(f"[...{PANEL}.querySelectorAll('.chip')].map((b) => b.className.split(' ')[1] + ':' + b.firstChild.textContent).join('|')")
         check("appearance:long hair" in order and "outfit:straw hat" in order and "outfit:white dress" in order and "skip:freckles" in order and "skip:smile" in order,
               f"  sorted: hair and eyes in appearance, the hat and dress in outfit, the smile skipped ({order[:160]}…)")
+        keys = await c.js(f"""(() => {{ window.__keys = 0; document.addEventListener('keydown', () => window.__keys++);
+            const i = {PANEL}.querySelector('input[data-field]'); i.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'a', bubbles: true, composed: true }}));
+            return window.__keys; }})()""")
+        check(keys == 0, "  keys typed in the panel don't reach the page (its own shortcuts)")
         if os.environ.get("ML_E2E_SHOTS"):  # a look at the panel (a folder to save it in)
             await M.shot(c, os.path.join(os.environ["ML_E2E_SHOTS"], "characters-panel.png"))
         await c.js(f"[...{PANEL}.querySelectorAll('.chip')].find((b) => b.firstChild.textContent === 'freckles').click()")

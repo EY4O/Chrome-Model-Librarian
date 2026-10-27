@@ -35,8 +35,8 @@
       const name = tagFromRow(li);
       if (name && g[type] && type !== "rating") g[type].push(name.replace(/_/g, " "));
     }
-    const rated = [...document.querySelectorAll("li, div")].map((el) => el.childElementCount < 3 && (el.textContent.match(/^\s*Rating:\s*(\w+)/i) || [])[1]).find(Boolean);
-    g.rating = rated || "";
+    const row = [...document.querySelectorAll("li, div")].find((el) => el.childElementCount < 3 && /^\s*Rating:\s*\w+/i.test(el.textContent));
+    g.rating = row ? row.textContent.match(/^\s*Rating:\s*(\w+)/i)[1] : "";
     const img = document.querySelector("#image, #image-container img, img#img");
     g.preview = img ? img.currentSrc || img.src : "";
     return g;
@@ -52,7 +52,7 @@
       font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; transform: translateX(16px); opacity: 0; transition: transform .2s ease-out, opacity .2s ease-out; }
     .panel.open { transform: none; opacity: 1; }
     .panel[hidden] { display: none; }
-    @media (prefers-reduced-motion: reduce) { .panel { transition: none; } }
+    @media (prefers-reduced-motion: reduce) { .panel, .chip { transition: none; } }
     header, footer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
     header { border-bottom: 1px solid #2f323b; font-size: 14px; }
     header img { width: 20px; height: 20px; }
@@ -99,8 +99,15 @@
   document.documentElement.append(box);
 
   const NEXT = { appearance: "outfit", outfit: "skip", skip: "appearance" };
-  let state = null; // {post, drafts, failed, busy, done}
-  let lastButton = null;
+  const MAX = 12;  // characters saved at once (the service worker's limit)
+  const FIELDS = new Set(["name", "series", "outfitName"]);  // the only things an input on the panel sets
+  let state = null; // {post, drafts, failed, skipped, busy, done}
+  let opener = null;  // what had the focus when the panel opened: it gets it back
+  // a message to the service worker; after the extension was updated this page's script can't reach it any more
+  const send = (msg) => {
+    try { return chrome.runtime.sendMessage(msg).catch((e) => ({ error: e.message })); }
+    catch { return Promise.resolve({ error: "The extension was updated: reload this page" }); }
+  };
 
   function chip(d, i, j) {
     const x = d.buckets[j];
@@ -129,24 +136,27 @@
     if (!state) return;
     const picked = state.drafts ? state.drafts.filter((d) => d.include).length : 0;
     saveBtn.hidden = !!state.done;
-    saveBtn.disabled = !!state.busy || !picked;
-    saveBtn.textContent = state.busy === "saving" ? "Saving…" : picked > 1 ? `Save ${picked} characters` : "Save";
-    if (state.busy === "reading") { body.innerHTML = '<p class="dim">Reading the post and Danbooru…</p>'; return; }
+    saveBtn.disabled = !!state.busy || !picked || picked > MAX;
+    saveBtn.textContent = state.busy === "saving" ? "Saving…" : picked > MAX ? `Up to ${MAX} at a time` : picked > 1 ? `Save ${picked} characters` : "Save";
+    if (state.busy === "reading") { body.innerHTML = `<p class="dim">${e621 ? "Reading the post…" : "Reading the post and Danbooru…"}</p>`; return; }
     if (state.error) { body.innerHTML = `<p class="err">${esc(state.error)}</p>`; return; }
     if (state.done) {
       body.innerHTML = state.done.map((r) => `<div class="card"><div class="title">${esc(r.name)}</div><div class="${r.error ? "err" : "dim"}">${esc(r.error ||
         (r.where === "ml" ? (r.created ? "Added to your characters in Model Librarian." : "Added to your character in Model Librarian.")
-          : "Left for the Gallery: ComfyUI isn't running, so the Gallery adds it to your characters while it's open." + (r.why === "update" ? " (Model Librarian needs 1.24.0 or newer.)" : "")))}</div></div>`).join("");
+          : r.why === "update" ? "Left for the Gallery, which adds it while it's open: this ComfyUI's Model Librarian is older than 1.24.0 (update it to file characters straight away)."
+            : "Left for the Gallery: ComfyUI isn't running, so the Gallery adds it to your characters while it's open."))}</div></div>`).join("");
       return;
     }
     if (!state.drafts.length) { body.innerHTML = '<p class="dim">This post has no character tags.</p>'; return; }
     body.innerHTML = `${state.failed && state.failed.length ? `<p class="err">Danbooru didn't answer for ${esc(state.failed.map(show).join(", "))}: only this post's tags are sorted.</p>` : ""}
+      ${state.skipped && state.skipped.length ? `<p class="dim">Not asked of Danbooru (a post with many characters): ${esc(state.skipped.map(show).join(", "))}. Their tags come from this post only.</p>` : ""}
       ${state.drafts.map(card).join("")}
       <p class="dim">Click a tag to move it: appearance → outfit → skip. The % is how often it's on the character's posts.</p>`;
   }
 
   async function open(tag) {
-    state = { busy: "reading", drafts: [] };
+    if (panel.hidden) opener = document.activeElement;
+    const mine = state = { busy: "reading", drafts: [] };
     panel.hidden = false;
     requestAnimationFrame(() => panel.classList.add("open"));
     status.textContent = "";
@@ -154,31 +164,42 @@
     root.getElementById("ml-chars-h").focus();
     const msg = { type: "charDraft", url: location.href, tag };
     if (!donmai && !e621) msg.groups = groups();
-    const r = await chrome.runtime.sendMessage(msg).catch((e) => ({ error: e.message }));
-    state = r && !r.error ? { post: r.post, drafts: r.drafts, failed: r.failed } : { error: (r && r.error) || "Couldn't read this post", drafts: [] };
+    const r = await send(msg);
+    if (state !== mine) return;  // (closed, or another opened, meanwhile)
+    state = r && !r.error ? { post: r.post, drafts: r.drafts, failed: r.failed, skipped: r.skipped } : { error: (r && r.error) || "Couldn't read this post", drafts: [] };
     draw();
   }
   function close() {
     panel.classList.remove("open");
     panel.hidden = true;
     state = null;
-    lastButton?.focus();
+    if (opener && opener.isConnected) opener.focus?.();
   }
   async function save() {
-    const chosen = state.drafts.filter((d) => d.include);
-    if (!chosen.length) return;
-    state.busy = "saving";
+    const mine = state;
+    const chosen = mine.drafts.filter((d) => d.include);
+    if (!chosen.length || chosen.length > MAX) return;
+    mine.busy = "saving";
     draw();
-    const r = await chrome.runtime.sendMessage({ type: "charSave", post: state.post, drafts: chosen }).catch((e) => ({ error: e.message }));
+    const r = await send({ type: "charSave", post: mine.post, drafts: chosen });
+    for (const x of (r && r.results) || []) if (!x.error) markButtons(x.tag);  // (saved, whatever the panel shows now)
+    if (state !== mine) return;
     state.busy = null;
     if (!r || r.error) { status.textContent = (r && r.error) || "Couldn't save"; status.className = "status err"; draw(); return; }
     state.done = r.results;
     const ok = r.results.filter((x) => !x.error).length;
     status.textContent = ok ? `Saved ${ok} of ${r.results.length}` : "Nothing saved";
     status.className = `status ${ok ? "ok" : "err"}`;
-    for (const x of r.results) if (!x.error) markButtons(x.tag);
     draw();
   }
+
+  // what has the focus, found again after the panel is drawn again
+  const keyOf = (el) => (el && el.dataset ? ["act", "i", "j", "v", "field"].map((k) => el.dataset[k] != null ? `[data-${k}="${el.dataset[k]}"]` : "").join("") : "");
+  const keepFocus = (fn) => {
+    const k = keyOf(root.activeElement);
+    fn();
+    if (k) root.querySelector(k)?.focus();
+  };
 
   root.addEventListener("click", (e) => {
     const el = e.target.closest("[data-act]");
@@ -190,25 +211,34 @@
     if (act === "move" && d) {
       const x = d.buckets[+el.dataset.j];
       x.b = NEXT[x.b];
-      draw();
-      root.querySelector(`[data-act="move"][data-i="${el.dataset.i}"][data-j="${el.dataset.j}"]`)?.focus();
+      el.focus();
+      keepFocus(draw);
     }
-    if (act === "mode" && d) { d.mode = el.dataset.v; if (d.mode === "new" && d.have) d.outfitName = "default"; else if (d.have) d.outfitName = `post ${state.post.id}`; draw(); }
+    if (act === "mode" && d) {
+      d.mode = el.dataset.v;
+      if (d.mode === "new" && d.have) d.outfitName = "default";
+      else if (d.have) d.outfitName = `post ${state.post.id}`;
+      el.focus();
+      keepFocus(draw);
+    }
   });
   root.addEventListener("change", (e) => {
     const el = e.target;
-    if (el.dataset.act === "pick" && state) { state.drafts[+el.dataset.i].include = el.checked; draw(); }
+    if (el.dataset.act === "pick" && state) { state.drafts[+el.dataset.i].include = el.checked; keepFocus(draw); }
   });
   root.addEventListener("input", (e) => {
     const el = e.target;
-    if (el.dataset.field && state) state.drafts[+el.dataset.i][el.dataset.field] = el.value;
+    if (FIELDS.has(el.dataset.field) && state && state.drafts[+el.dataset.i]) state.drafts[+el.dataset.i][el.dataset.field] = el.value;
   });
-  root.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } });
+  // keys typed in the panel are the panel's: the site's own shortcuts (next post, edit tags...) don't see them
+  root.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") close(); });
+  for (const t of ["keyup", "keypress"]) root.addEventListener(t, (e) => e.stopPropagation());
 
   // ---------------------------------------------------------------- the buttons beside the tags
   const style = document.createElement("style");
-  style.textContent = `.ml-char-add { margin-left: 6px; padding: 0 8px; height: 18px; border-radius: 999px; border: 1px solid #2f7cf6; background: transparent;
-    color: inherit; font: 600 10px/16px system-ui, sans-serif; cursor: pointer; vertical-align: middle; opacity: .8; transition: opacity .15s, background .15s; }
+  style.textContent = `.ml-char-add { margin-left: 6px; padding: 0 9px; height: 22px; border-radius: 999px; border: 1px solid #2f7cf6; background: transparent;
+    color: inherit; font: 600 11px/20px system-ui, sans-serif; cursor: pointer; vertical-align: middle; opacity: .8; transition: opacity .15s, background .15s; }
+    @media (prefers-reduced-motion: reduce) { .ml-char-add { transition: none; } }
     .ml-char-add:hover, .ml-char-add:focus-visible { opacity: 1; background: #2f7cf6; color: #fff; }
     .ml-char-add[data-state="done"] { border-color: #3fb950; opacity: 1; }`;
   document.head.append(style);
@@ -229,7 +259,7 @@
       btn.dataset.tag = tag;
       btn.textContent = "+ Character";
       btn.title = `Add ${show(tag)} to your characters (Model Librarian)`;
-      btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); lastButton = btn; open(tag); });
+      btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); opener = btn; open(tag); });
       li.append(btn);
     }
   }

@@ -104,7 +104,8 @@
   });
 
   const s = { page: null, key: null, open: false, info: null, error: null, versionId: null, queue: [], conn: { ok: false }, needs: {},
-    recipe: null, imageUrl: null, saved: false, prompto: null, withNeeds: true, later: [], collect: null };
+    recipe: null, imageUrl: null, saved: false, prompto: null, withNeeds: true, later: [], collect: null,
+    links: {} };  // version id -> {phase: reading | pick | linking | done | error, list, text}: Link to a character, kept across redraws
 
   function page() {
     const host = location.hostname.replace(/^www\./, "");
@@ -259,31 +260,41 @@
     render();
   }
 
-  // a LoRA you have, linked to one of your characters (Model Librarian's character list): Character Select loads it for them
+  // a LoRA you have, linked to one of your characters (Model Librarian's character list): Character Select loads it for them.
+  // Where it's got to is kept in s.links, so the panel drawn again (a download's progress) doesn't lose it.
+  const LORA_TYPES = ["LORA", "LOCON", "DORA"];  // (LyCORIS and DoRA are loaded as LoRAs too)
+  const oldML = (x) => x && x.status === 404 && /ComfyUI answered 404/.test(x.error || "");  // (no such route: Model Librarian too old)
   function linkControl(v) {
     const own = s.info?.owned?.[String(v.id)];
-    if (!own || own.status !== "have" || !own.rel || String(s.info?.model?.type || "").toUpperCase() !== "LORA") return null;
-    const box = h("div", { class: "link" });
-    const say = (cls, text) => box.replaceChildren(h("span", { class: cls }, text));
+    if (!own || own.status !== "have" || !own.rel || !LORA_TYPES.includes(String(s.info?.model?.type || "").toUpperCase())) return null;
+    const st = s.links[v.id] || {};
+    const set = (patch) => { s.links[v.id] = { ...(s.links[v.id] || {}), ...patch }; render(); };
     async function open() {
-      say("dim", "Reading your characters…");
+      set({ phase: "reading", text: "Reading your characters…" });
       const r = await send({ type: "charList" });
-      if (!r || r.error || !Array.isArray(r.characters)) return say("err", (r && r.error) || "Couldn't read your characters");
-      if (!r.characters.length) return say("dim", "No characters yet: add one with + Character on a booru post");
-      const sel = h("select", { class: "pick", "aria-label": "Character to link it to" }, h("option", { value: "" }, "Pick a character…"),
-        ...r.characters.map((c) => h("option", { value: c.id }, c.name)));
-      sel.addEventListener("change", async () => {
-        if (!sel.value) return;
-        const name = sel.selectedOptions[0].textContent;
-        say("dim", "Linking…");
-        const x = await send({ type: "charLink", id: sel.value, rel: own.rel });
-        if (x && x.character) say("ok", `✓ ${name}'s LoRA`);
-        else say("err", x && x.status === 404 ? "Update Model Librarian (1.26.0+) to link LoRAs" : (x && x.error) || "Not linked");
-      });
-      box.replaceChildren(sel);
-      sel.focus();
+      if (!r || r.error || !Array.isArray(r.characters)) return set({ phase: "error", text: oldML(r) ? "Update Model Librarian (1.26.0+) to link LoRAs" : (r && r.error) || "Couldn't read your characters" });
+      if (!r.characters.length) return set({ phase: "error", text: "No characters yet: add one with + Character on a booru post" });
+      const list = [...r.characters].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" }));
+      set({ phase: "pick", list });
     }
-    box.append(h("button", { class: "dl ghost small", title: "Character Select (in ComfyUI) loads it for that character, with its trigger words", onclick: open }, "Link to a character"));
+    async function link(id, name) {
+      set({ phase: "linking", text: "Linking…" });
+      const x = await send({ type: "charLink", id, rel: own.rel });
+      if (x && x.character) set({ phase: "done", text: `✓ ${name}'s LoRA` });
+      else set({ phase: "error", text: oldML(x) ? "Update Model Librarian (1.26.0+) to link LoRAs" : (x && x.error) || "Not linked" });
+    }
+    const box = h("div", { class: "link" });
+    if (st.phase === "pick") {
+      const sel = h("select", { class: "pick", "aria-label": "Character to link it to" }, h("option", { value: "" }, "Pick a character…"),
+        ...st.list.map((c) => h("option", { value: c.id }, c.series ? `${c.name} (${c.series})` : c.name)));
+      sel.addEventListener("change", () => { if (sel.value) link(sel.value, st.list.find((c) => c.id === sel.value)?.name || "the character"); });
+      box.append(sel);
+    } else if (st.phase) {
+      box.append(h("span", { class: { reading: "dim", linking: "dim", done: "ok", error: "err" }[st.phase] }, st.text));
+      if (st.phase === "done" || st.phase === "error") box.append(" ", h("button", { class: "dl ghost small", onclick: open }, "Link another"));
+    } else {
+      box.append(h("button", { class: "dl ghost small", title: "Character Select (in ComfyUI) loads it for that character, with its trigger words", onclick: open }, "Link to a character"));
+    }
     return box;
   }
 

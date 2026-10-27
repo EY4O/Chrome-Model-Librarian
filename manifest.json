@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Model Librarian",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "One-click downloads from CivitAI and HuggingFace into ComfyUI via Model Librarian, pictures for its Gallery, booru characters.",
   "minimum_chrome_version": "121",
   "icons": {
@@ -44,6 +44,7 @@
     "https://*.gelbooru.com/*",
     "https://e926.net/*",
     "https://static1.e621.net/*",
+    "https://static1.e926.net/*",
     "https://pawchive.pw/*",
     "https://i.pximg.net/*"
   ],
