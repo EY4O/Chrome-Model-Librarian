@@ -53,7 +53,7 @@ Node 20+. The tests cover the queue, CivitAI parsing and the ComfyUI client with
 
 `python tests/e2e_features.py` runs the extension in headless Edge on the staged pages below (sample CivitAI pages and a recording sample Model Librarian; never real sites): the **↑ Get update** badge (and the lookup through Model Librarian when CivitAI's public API won't show a model), a collection's background job, the popup's Cancel and Retry in Model Librarian, and the right-click menu. It needs what `make_media.py` needs.
 
-`python tests/e2e_characters.py` runs **+ Character** in headless Edge on staged Danbooru and Gelbooru posts with a made-up character and a fake Model Librarian: the button, the panel's sort, a tag moved, Save (with the post's small picture), a character you have offered as an outfit, the `.mlchar.json` left for the Gallery when ComfyUI isn't running (and, with Model-Librarian-Gallery beside this repo, the Gallery filing it into a made-up data folder), and the right-click menu. `ML_E2E_SHOTS=<folder>` also saves a screenshot of the panel.
+`python tests/e2e_characters.py` runs **+ Character** in headless Edge on staged Danbooru and Gelbooru posts with a made-up character and a fake Model Librarian: the button, the panel's sort, a tag moved, Save (with the post's small picture), a character you have offered as an outfit, the `.mlchar.json` left for the Gallery when ComfyUI isn't running (and, with Model-Librarian-Gallery beside this repo, the Gallery filing it into a made-up data folder), **Link to a character** on a staged CivitAI LoRA page you have (sent to Model Librarian by its file), and the right-click menu. `ML_E2E_SHOTS=<folder>` also saves a screenshot of the panel.
 
 ## README screenshots
 

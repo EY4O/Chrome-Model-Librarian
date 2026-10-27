@@ -7,6 +7,7 @@ Gelbooru served from 127.0.0.1 (never the real sites), with a made-up character 
   - ComfyUI not running: the character is left in Downloads\\Model Librarian Gallery as <tag> <time>.mlchar.json, and
     the Gallery (beside this repo) files it into a made-up Model Librarian data folder
   - Gelbooru: the page's own tag groups and rating
+  - CivitAI: a LoRA you have gets "Link to a character", which links it in Model Librarian
 
   python tests/e2e_characters.py
 
@@ -30,7 +31,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools", "media"))
 import make_media as M  # noqa: E402
 
-HOSTS = ["danbooru.donmai.us", "cdn.donmai.us", "gelbooru.com", "img3.gelbooru.com"]
+HOSTS = ["danbooru.donmai.us", "cdn.donmai.us", "gelbooru.com", "img3.gelbooru.com", "civitai.com"]
+LORA_MODEL = {"id": 5001, "name": "Aurelia (Lighthouse Tales)", "type": "LORA", "creator": {"username": "sample_artist"}, "modelVersions": [
+    {"id": 50011, "name": "v2", "baseModel": "Illustrious", "files": [M.file(501, "aurelia_v2.safetensors", 0.2, ftype="Model")]}]}
+LINKED = []    # bodies posted to the fake Model Librarian's /characters/{id}/lora
 SEEN = []      # (host, path, query) of every request to the staged sites
 POSTED = []    # bodies posted to the fake Model Librarian's /ext/characters
 HAVE = []      # what the fake Model Librarian has
@@ -74,6 +78,11 @@ async def sites(request: web.Request):
             <img id='image' src='https://img3.gelbooru.com/samples/ab/cd/sample_x.jpg' width=600 height=800>""")
     if host == "img3.gelbooru.com":
         return web.Response(body=jpeg((40, 40, 120)), content_type="image/jpeg")
+    if host == "civitai.com":
+        if path.startswith("/api/v1/models/5001"):
+            return web.json_response(LORA_MODEL)
+        if path.startswith("/models/5001"):
+            return html("Aurelia", "<h1>Aurelia (Lighthouse Tales)</h1><p>A sample LoRA page.</p>")
     return web.Response(status=404, text="not staged")
 
 
@@ -82,6 +91,14 @@ async def ml(request: web.Request):
     if p == "/sm-fetcher/ext/hello":
         return web.json_response({"app": "model-librarian", "version": "1.24.0", "models_root": "D:\\ComfyUI\\models", "free_bytes": 1 << 40,
                                   "civitai_key": True, "active_downloads": 0, "system": M.SYSTEM})
+    if p == "/sm-fetcher/ext/lookup":
+        b = await request.json()
+        return web.json_response({"versions": {str(v): ({"status": "have", "folder": "loras", "rel": "chars/aurelia_v2.safetensors"} if v == 50011 else {"status": "missing"})
+                                               for v in b.get("version_ids") or []}, "hashes": {}, "models": {}})
+    if p.startswith("/sm-fetcher/characters/") and p.endswith("/lora") and request.method == "POST":
+        b = await request.json()
+        LINKED.append((p.split("/")[3], b))
+        return web.json_response({"character": {"id": p.split("/")[3], "name": "Aurelia", "lora": {"name": b["name"], "trigger": ["aurelia_lt"]}}})
     if p == "/sm-fetcher/ext/characters" and request.method == "GET":
         return web.json_response({"characters": HAVE})
     if p == "/sm-fetcher/ext/characters" and request.method == "POST":
@@ -228,6 +245,21 @@ async def run(check, downloads):
               and "blue hair" in ch.get("appearance", []) and "scarf" in ch.get("outfit", {}).get("tags", [])
               and str(POSTED[-1].get("picture", "")).startswith("data:image/webp"),
               f"  filed with the series, the site, its tags, and a picture (Rating: General) ({ch.get('appearance')}, {ch.get('outfit')})")
+        await ws.close()
+
+        # ---- CivitAI: a LoRA you have, linked to a character
+        HAVE[:] = [{"id": "chr_00000001", "tag": TAG, "name": "Aurelia", "outfits": ["default"], "has_image": True}]
+        ws, c = await M.tab("https://civitai.com/models/5001/aurelia", scale=1)
+        link = f"[...{M.R}.querySelectorAll('button')].find((b) => b.textContent === 'Link to a character')"
+        await M.open_panel(c, f"!!({link})")
+        check(await c.js(f"!!({link})"), "CivitAI: a LoRA you have offers Link to a character")
+        await c.js(f"{link}.click()")
+        await c.wait(f"{M.R}.querySelector('select.pick')", 15)
+        await c.js(f"(() => {{ const s = {M.R}.querySelector('select.pick'); s.value = 'chr_00000001'; s.dispatchEvent(new Event('change')); }})()")
+        await c.wait(f"{M.R}.querySelector('.link .ok')", 15)
+        said = await c.js(f"{M.R}.querySelector('.link').textContent")
+        check(LINKED == [("chr_00000001", {"name": "chars/aurelia_v2.safetensors"})] and "Aurelia's LoRA" in said,
+              f"  linked in Model Librarian by its file in your library ({LINKED}, {said})")
         await ws.close()
 
         # ---- the right-click menu is registered

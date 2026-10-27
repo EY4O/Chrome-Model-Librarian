@@ -549,6 +549,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       case "gallerySave": return gallerySave(msg.items);
       case "charDraft": return charDraft(msg);
       case "charSave": return charSave(msg);
+      case "charList": return withComfy((base) => comfy.api(base, "/ext/characters", { timeout: 5000 }));
+      case "charLink": { // a LoRA you have, as one of your characters' (CivitAI's panel)
+        if (!/^chr_[a-z0-9]{1,32}$/.test(String(msg.id || "")) || typeof msg.rel !== "string" || !msg.rel) return { error: "Nothing to link" };
+        return withComfy((base) => comfy.api(base, `/characters/${msg.id}/lora`, { method: "POST", body: { name: msg.rel } }));
+      }
       case "galleryPage": return galleryPage(msg.tabId);
       case "retry": { // in Model Librarian when it still has the download (it carries on from where it stopped)
         const { queue, conn } = await load();

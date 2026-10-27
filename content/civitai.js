@@ -34,6 +34,8 @@
     button.dl:hover { background: #4a8ff8; }
     button.dl.ghost { background: #2c2f37; color: #e8e8ea; }
     button.dl.small { padding: 3px 8px; font-size: 11px; }
+    select.pick { max-width: 150px; border: 1px solid #2c2f37; border-radius: 7px; padding: 3px 6px; background: #111; color: #e8e8ea; font: 12px system-ui, sans-serif; }
+    .link { font-size: 11.5px; text-align: right; }
     .upd { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(47,124,246,.14); border: 1px solid rgba(47,124,246,.45); }
     .prog { height: 4px; border-radius: 2px; background: #2c2f37; overflow: hidden; } .prog > div { height: 100%; background: #2f7cf6; }
     .state { flex: none; font-size: 12px; text-align: right; min-width: 92px; }
@@ -257,6 +259,34 @@
     render();
   }
 
+  // a LoRA you have, linked to one of your characters (Model Librarian's character list): Character Select loads it for them
+  function linkControl(v) {
+    const own = s.info?.owned?.[String(v.id)];
+    if (!own || own.status !== "have" || !own.rel || String(s.info?.model?.type || "").toUpperCase() !== "LORA") return null;
+    const box = h("div", { class: "link" });
+    const say = (cls, text) => box.replaceChildren(h("span", { class: cls }, text));
+    async function open() {
+      say("dim", "Reading your characters…");
+      const r = await send({ type: "charList" });
+      if (!r || r.error || !Array.isArray(r.characters)) return say("err", (r && r.error) || "Couldn't read your characters");
+      if (!r.characters.length) return say("dim", "No characters yet: add one with + Character on a booru post");
+      const sel = h("select", { class: "pick", "aria-label": "Character to link it to" }, h("option", { value: "" }, "Pick a character…"),
+        ...r.characters.map((c) => h("option", { value: c.id }, c.name)));
+      sel.addEventListener("change", async () => {
+        if (!sel.value) return;
+        const name = sel.selectedOptions[0].textContent;
+        say("dim", "Linking…");
+        const x = await send({ type: "charLink", id: sel.value, rel: own.rel });
+        if (x && x.character) say("ok", `✓ ${name}'s LoRA`);
+        else say("err", x && x.status === 404 ? "Update Model Librarian (1.26.0+) to link LoRAs" : (x && x.error) || "Not linked");
+      });
+      box.replaceChildren(sel);
+      sel.focus();
+    }
+    box.append(h("button", { class: "dl ghost small", title: "Character Select (in ComfyUI) loads it for that character, with its trigger words", onclick: open }, "Link to a character"));
+    return box;
+  }
+
   function fileRow(v, f) {
     const st = stateOf(v, f);
     let right;
@@ -277,6 +307,8 @@
       right = h("div", { class: "state" }, st.total ? `${pct}%` : "Starting…", h("div", { class: "bar" }, h("div", { style: `width:${pct}%` })));
     } else if (st.status === "done" || st.status === "have") {
       right = h("div", { class: "state ok", title: st.dest || "" }, st.status === "done" ? "✓ Downloaded" : "✓ In your library");
+      const link = f.primary ? linkControl(v) : null;
+      if (link) right = h("div", { class: "acts" }, right, link);
     } else if (st.status === "error" || st.status === "cancelled") {
       right = h("div", { class: "acts" },
         h("button", { class: "dl ghost", title: st.error || "Cancelled", onclick: () => send({ type: "retry", key: st.key }) }, "Retry"),
