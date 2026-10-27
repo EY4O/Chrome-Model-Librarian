@@ -26,6 +26,7 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 - ⏳ **Queue while ComfyUI is closed** — clicks wait in the extension and start when ComfyUI is reachable; the popup shows progress, with **Cancel** and **Retry** that act in Model Librarian itself, and a notification says when each download is done.
 - 📚 **Collections and save for later** — get every missing model of a CivitAI collection (the best file of each), or star a model to come back to.
 - 🖼️ **Save pictures for Model Librarian Gallery** — right-click any picture (**Save to Model Librarian Gallery**), use the **Save** button on pictures on Pixiv, X, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621 and Pawchive, or pick from a post's pictures in the popup (**Save from this page**). Each is saved full size into `Downloads\Model Librarian Gallery` with a note of its page, artist, title and tags, which the Gallery's **New downloads** files with it. The Gallery needn't be open.
+- 👤 **Characters from the boorus** — a **+ Character** button beside each character tag on Danbooru, Gelbooru, Safebooru and e621 opens a panel that sorts the character's usual look into appearance, outfit and skip (from Danbooru's related tags and the post). Click a tag to move it, then **Save**: it goes into Model Librarian's character list (1.24.0+), the one the Gallery shares. ComfyUI not running? It's left for the Gallery to add instead.
 - 🖥️ **Works with Comfy Desktop, and several ComfyUIs** — talks to ComfyUI directly (no browser tab needed); pick which ComfyUI gets the downloads, including one on another PC (e.g. over Tailscale).
 - 🔒 **Keys stay home** — CivitAI and HuggingFace keys live in Model Librarian; the extension never sees them. A model CivitAI only shows to signed-in users is looked up through Model Librarian, with your key, so it still works.
 
@@ -153,12 +154,22 @@ Model Librarian decides, from CivitAI's details of that version: the folder for 
 </details>
 
 <details>
+<summary><b>👤 Characters from Danbooru, Gelbooru, Safebooru and e621</b></summary>
+
+- On a post, **+ Character** sits beside each character tag (or right-click the page: **Add characters from this post**). A panel opens on the page with every character in the post, the one you clicked ticked.
+- Each character's usual look comes from Danbooru: the general tags on most of its solo, general-rated posts (all its general-rated posts when it has few solo ones), with how often each appears. The post's own tags join in; with several characters, a tag goes to the one it belongs to most. Hair, eyes and the like go under **Appearance**, clothes and accessories under **Outfit**, the rest (the scene, expressions) under **Skip**. Click a tag to move it: appearance → outfit → skip. e621's characters are sorted from the post alone, its species counted as appearance. A character's look is asked of Danbooru once a week at most.
+- Name the character, its series and the outfit, then **Save**. A character you have already (by its tag) gets the post as another outfit, named after the post, and any appearance tags it didn't have; **New character** makes a separate one instead.
+- It's filed into Model Librarian's character list (`characters.json` in its shared data folder), with a small picture of the post when the post is rated general. When ComfyUI isn't running (or its Model Librarian is older than 1.24.0), it's saved as `<tag> <time>.mlchar.json` in `Downloads\Model Librarian Gallery` instead, and Model Librarian Gallery (1.15.0+) adds it to the same list while it's open.
+- Danbooru and e621 are asked without your cookies, so your accounts there aren't involved.
+</details>
+
+<details>
 <summary><b>🔒 Privacy and permissions</b></summary>
 
 - **civitai.com / .green / .red, huggingface.co, civarchive.com** — to show the panel; CivitAI's public API is read for model versions and files.
 - **127.0.0.1 / localhost** — to reach Model Librarian in ComfyUI. Another address is asked for when you save it.
-- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **contextMenus** — **Download with Model Librarian** on CivitAI model links, **Save to Model Librarian Gallery** on pictures. **scripting** — the fallback through an open ComfyUI tab, and **Save from this page** on sites it doesn't know. **declarativeNetRequestWithHostAccess** — the header rule above, and Pixiv's referrer for its originals.
-- **Pixiv, X, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621, Pawchive (and i.pximg.net)** — to read a post's pictures, artist and tags for saving, and to show the **Save** button. **downloads, downloads.ui** — to save pictures into `Downloads\Model Librarian Gallery` (Chrome's download bubble is kept quiet while it does). **activeTab** — **Save from this page** on the tab you're looking at. **offscreen** — a page with no window that holds a Pixiv original for the downloader.
+- **storage, alarms, notifications** — the queue, the 30-second check and the "downloaded" notices. **contextMenus** — **Download with Model Librarian** on CivitAI model links, **Save to Model Librarian Gallery** on pictures, **Add characters from this post** on booru posts. **scripting** — the fallback through an open ComfyUI tab, and **Save from this page** on sites it doesn't know. **declarativeNetRequestWithHostAccess** — the header rule above, and Pixiv's referrer for its originals.
+- **Pixiv, X, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621, Pawchive (and i.pximg.net)** — to read a post's pictures, artist and tags for saving, and to show the **Save** button. **Danbooru (and its pictures' server), e926, e621's and Gelbooru's picture servers** — to read a post and a character's related tags for **+ Character**, and the post's small picture. **downloads, downloads.ui** — to save pictures into `Downloads\Model Librarian Gallery` (Chrome's download bubble is kept quiet while it does). **activeTab** — **Save from this page** on the tab you're looking at. **offscreen** — a page with no window that holds a Pixiv original for the downloader.
 
 Nothing is sent anywhere else, and the extension stores no keys.
 </details>

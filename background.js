@@ -7,6 +7,7 @@ import * as Q from "./lib/queue.js";
 import { fetchModel, normalizeModel } from "./lib/civitai.js";
 import { assess, recommend, gpuName, needsTextEncoder, textEncoderOf } from "./lib/fit.js";
 import { FOLDER, NOTE, fileNameFor, fullSize, noteFor } from "./lib/gallery.js";
+import * as B from "./lib/booru.js";
 
 const RULE_ID = 1;
 const PIXIV_RULE = 2;  // Pixiv's originals only come with Pixiv as the referrer
@@ -404,6 +405,96 @@ async function saveImage(src, tab) {
     message: r.saved ? `${items[0].artist ? `By ${items[0].artist}. ` : ""}It's in the Gallery's New downloads, ready to file.` : String(r.error || "") });
 }
 
+// ---------------------------------------------------------------- characters from booru posts
+// "+ Character" on a post (content/booru.js): the post and each character's usual look are read here (lib/booru.js), the
+// page's panel sorts them, and each is filed into Model Librarian's character list (1.24.0+). When ComfyUI isn't running,
+// or its Model Librarian is older, it's left in Downloads\Model Librarian Gallery instead, for the Gallery to file.
+const CHAR_POSTS = ["https://danbooru.donmai.us/posts/*", "https://safebooru.donmai.us/posts/*", "https://e621.net/posts/*", "https://e926.net/posts/*",
+  "https://gelbooru.com/index.php*", "https://safebooru.org/index.php*"];
+const E_SITES = ["e621", "e926"];
+
+// your characters by tag: Model Librarian's list when it's there (else as last heard), and the ones left for the Gallery since
+async function knownCharacters() {
+  const r = await withComfy((base) => comfy.api(base, "/ext/characters", { timeout: 5000 }));
+  let { charsKnown, charsLeft } = await chrome.storage.local.get({ charsKnown: [], charsLeft: [] });
+  if (r && Array.isArray(r.characters)) {
+    charsKnown = r.characters.map((c) => ({ tag: c.tag, name: c.name, outfits: c.outfits || [] }));
+    charsLeft = charsLeft.filter((x) => !charsKnown.some((k) => B.norm(k.tag) === B.norm(x.tag)));  // (the Gallery has filed it)
+    await chrome.storage.local.set({ charsKnown, charsLeft });
+  }
+  return [...charsKnown, ...charsLeft];
+}
+
+async function charDraft(msg) {
+  const where = B.postOf(msg.url);
+  if (!where) return { error: "This isn't a post Model Librarian can read" };
+  const post = where.page ? B.postFromGroups(where, msg.groups || {}) : E_SITES.includes(where.site) ? await B.fetchE621(where) : await B.fetchDanbooru(where);
+  const looks = {}, failed = [];
+  if (!E_SITES.includes(post.site)) {  // (e621's characters aren't Danbooru's: the post alone says)
+    const { looks: cache } = await chrome.storage.local.get({ looks: {} });
+    for (const [k, v] of Object.entries(cache)) if (!v || Date.now() - v.at > B.LOOK_DAYS * 864e5) delete cache[k];
+    for (const t of post.characters.slice(0, 6)) {
+      try { looks[t] = await B.fetchLook(t, cache); } catch { looks[t] = null; failed.push(t); }
+    }
+    await chrome.storage.local.set({ looks: cache });
+  }
+  return { post, drafts: B.draftsFor(post, looks, await knownCharacters(), msg.tag), failed };
+}
+
+// a post's preview as a small picture (256 px at most) for the character, as a data: URL
+async function smallPicture(src) {
+  const res = await fetch(src, { credentials: "omit" });
+  if (!res.ok) throw new Error(`The site said ${res.status}`);
+  const bmp = await createImageBitmap(await res.blob());
+  const k = Math.min(1, 256 / Math.max(bmp.width, bmp.height));
+  const canvas = new OffscreenCanvas(Math.max(1, Math.round(bmp.width * k)), Math.max(1, Math.round(bmp.height * k)));
+  canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.85 });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:${blob.type};base64,${btoa(bin)}`;
+}
+
+async function leaveForGallery(character, picture) {
+  await hush(true);
+  try {
+    const json = JSON.stringify(B.charFile(character, picture));
+    const id = await chrome.downloads.download({ url: `data:application/json;charset=utf-8,${encodeURIComponent(json)}`,
+      filename: `${FOLDER}/${B.charFileName(character.tag)}`, conflictAction: "uniquify", saveAs: false });
+    await downloaded(id);
+    chrome.downloads.erase({ id }).catch(() => {});  // (out of Chrome's list: it's the Gallery's now)
+  } finally {
+    await hush(false);
+  }
+  const { charsLeft } = await chrome.storage.local.get({ charsLeft: [] });
+  const outfits = character.outfit.tags.length ? [character.outfit.name] : [];
+  await chrome.storage.local.set({ charsLeft: [{ tag: character.tag, name: character.name, outfits }, ...charsLeft].slice(0, 200) });
+}
+
+async function charSave(msg) {
+  const post = msg.post || {};
+  const where = B.postOf(String(post.url || ""));
+  if (!where || !Array.isArray(msg.drafts)) return { error: "Nothing to save" };
+  const from = { ...post, site: where.site, id: where.id };  // (the post's own address says which)
+  const picture = /^https:\/\//.test(post.preview || "") && B.isGeneral(from) ? await smallPicture(post.preview).catch(() => null) : null;
+  const results = [];
+  for (const d of msg.drafts.slice(0, 12)) {
+    if (!d || !Array.isArray(d.buckets) || !d.tag) continue;
+    const character = B.importOf(d, from);
+    const r = await withComfy((base) => comfy.api(base, "/ext/characters", { method: "POST", body: { character, picture }, timeout: 15000 }));
+    if (r && r.character) { results.push({ tag: character.tag, name: r.character.name, where: "ml", created: !!r.created }); continue; }
+    if (r && r.status === 400) { results.push({ tag: character.tag, name: character.name, error: r.error }); continue; }
+    try {
+      await leaveForGallery(character, picture);
+      results.push({ tag: character.tag, name: character.name, where: "gallery", why: r && [404, 405].includes(r.status) ? "update" : "off" });
+    } catch (e) {
+      results.push({ tag: character.tag, name: character.name, error: `Couldn't leave it for the Gallery: ${e.message}` });
+    }
+  }
+  return { results };
+}
+
 // ---------------------------------------------------------------- messages from the page and the popup
 const POPUP_ONLY = new Set(["settings", "clear", "remove", "scan", "galleryPage"]);
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
@@ -456,6 +547,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       }
       case "state": return load();
       case "gallerySave": return gallerySave(msg.items);
+      case "charDraft": return charDraft(msg);
+      case "charSave": return charSave(msg);
       case "galleryPage": return galleryPage(msg.tabId);
       case "retry": { // in Model Librarian when it still has the download (it carries on from where it stopped)
         const { queue, conn } = await load();
@@ -524,6 +617,7 @@ function setupMenu() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: "ml-download", title: "Download with Model Librarian", contexts: ["link"], targetUrlPatterns: LINKS });
     chrome.contextMenus.create({ id: "ml-gallery", title: "Save to Model Librarian Gallery", contexts: ["image"] });
+    chrome.contextMenus.create({ id: "ml-characters", title: "Add characters from this post", contexts: ["page"], documentUrlPatterns: CHAR_POSTS });
   });
 }
 
@@ -547,6 +641,7 @@ async function downloadLink(url) {
 chrome.contextMenus?.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "ml-download" && info.linkUrl) downloadLink(info.linkUrl);
   if (info.menuItemId === "ml-gallery" && info.srcUrl) saveImage(info.srcUrl, tab);
+  if (info.menuItemId === "ml-characters" && tab && tab.id != null) chrome.tabs.sendMessage(tab.id, { type: "charOpen" }).catch(() => {});
 });
 
 // ---------------------------------------------------------------- wake-ups
