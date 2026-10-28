@@ -1,6 +1,7 @@
 name: Chrome Web Store
 # A push to main that changes manifest.json's version uploads that version and submits it for
 # review. Run it by hand (Actions → Chrome Web Store → Run workflow) to submit the current one.
+# It signs in without a key, as Linemark's release service account (store/LISTING.md → Publishing from GitHub).
 on:
   push:
     branches: [main]
@@ -10,8 +11,10 @@ on:
 concurrency: chrome-web-store
 
 jobs:
-  publish:
+  check:
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,18 +28,37 @@ jobs:
           if [ "${{ github.event_name }}" = workflow_dispatch ] || [ "$before" != "$now" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
-      - if: steps.version.outputs.publish
-        uses: actions/setup-node@v4
+
+  publish:
+    needs: check
+    if: needs.check.outputs.publish
+    runs-on: ubuntu-latest
+    environment: stores # Google only hands out the token to runs of this repository in this environment
+    permissions:
+      contents: read
+      id-token: write # to prove to Google that this run is EY4O/Chrome-Model-Librarian
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - if: steps.version.outputs.publish
-        run: node --test
-      - if: steps.version.outputs.publish
-        run: |
-          pip install --quiet google-auth requests
-          python3 tools/package.py
-          python3 tools/store_publish.py
+      - run: node --test
+      - run: python3 tools/package.py
+
+      # Swaps this run's GitHub identity for a one-hour token as linemark-release, the service account
+      # the publisher's dashboard lists. There is no key to store or leak.
+      - name: Sign in to the Chrome Web Store
+        id: google
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1037985269779/locations/global/workloadIdentityPools/github/providers/model-librarian
+          service_account: linemark-release@angelic-howl-511200-t5.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          create_credentials_file: false
+
+      - run: python3 tools/store_publish.py
         env:
-          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
           CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
-          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          CWS_EXTENSION_ID: dnopofnpaeindcbbgfhfjkbnjmmjjkcc

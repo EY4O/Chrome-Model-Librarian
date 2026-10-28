@@ -3,11 +3,13 @@
 Run by .github/workflows/store.yml when manifest.json's version changes on main. It uses the
 Chrome Web Store API v2 as a service account, from these environment variables:
 
-  CWS_SERVICE_ACCOUNT_KEY  the service account's JSON key (a repository secret)
+  CWS_ACCESS_TOKEN         a short-lived token for the service account (the workflow gets one
+                           without a key, see store/LISTING.md → Publishing from GitHub)
+  CWS_SERVICE_ACCOUNT_KEY  or the service account's JSON key, to run it from your own computer
+                           (needs pip install google-auth requests)
   CWS_PUBLISHER_ID         Developer Dashboard → Publisher → Settings
   CWS_EXTENSION_ID         the item's ID (dnopofnpaeindcbbgfhfjkbnjmmjjkcc)
 
-  pip install google-auth requests
   python tools/package.py && python tools/store_publish.py
 """
 import json
@@ -18,14 +20,16 @@ import time
 import urllib.error
 import urllib.request
 
-from google.auth.transport.requests import Request
-from google.oauth2 import service_account
-
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 API = "https://chromewebstore.googleapis.com"
 
 
 def token():
+    if os.environ.get("CWS_ACCESS_TOKEN"):
+        return os.environ["CWS_ACCESS_TOKEN"]
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+
     info = json.loads(os.environ["CWS_SERVICE_ACCOUNT_KEY"])
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/chromewebstore"])

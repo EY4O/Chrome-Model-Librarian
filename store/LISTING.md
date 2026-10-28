@@ -123,12 +123,31 @@ The screenshots use the README captures in `docs/images/`, taken on staged pages
 
 ## Publishing from GitHub
 
-`.github/workflows/store.yml` runs on a push to main that changes `manifest.json`'s version (or by hand: **Actions → Chrome Web Store → Run workflow**, which submits the version in `manifest.json` now). It runs the tests, builds the ZIP, and `tools/store_publish.py` uploads it and submits it for review with the [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api) as a service account. One-time setup:
+`.github/workflows/store.yml` runs on a push to main that changes `manifest.json`'s version (or by hand: **Actions → Chrome Web Store → Run workflow**, which submits the version in `manifest.json` now). It runs the tests, builds the ZIP, and `tools/store_publish.py` uploads it and submits it for review with the [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api).
 
-1. In the [Google Cloud console](https://console.cloud.google.com/), create a project (or pick one) and enable the **Chrome Web Store API**.
-2. **IAM & Admin → Service accounts → Create service account**. It needs no roles. On the account, **Keys → Add key → JSON** downloads its key.
-3. In the Developer Dashboard, **Account**: add the service account's email (a publisher can have one).
-4. In this repository, **Settings → Secrets and variables → Actions**: the secret `CWS_SERVICE_ACCOUNT_KEY` (the whole JSON key), and the variables `CWS_PUBLISHER_ID` (Dashboard → **Publisher → Settings**) and `CWS_EXTENSION_ID` (`dnopofnpaeindcbbgfhfjkbnjmmjjkcc`). Then delete the downloaded key file.
+It signs in without a key. GitHub vouches that the run is this repository in its `stores` environment ([Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation)), and Google hands it a one-hour token as Linemark's release service account, `linemark-release@angelic-howl-511200-t5.iam.gserviceaccount.com`. A publisher's dashboard lists only one service account and that one is already there, so both extensions share it (Linemark's `docs/RELEASING.md` has the rest of that setup). One-time setup:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), signed in as the account that owns Linemark's project, open **Cloud Shell** and run the three commands below.
+   - The first picks Linemark's project.
+   - The second adds a `model-librarian` provider to its `github` pool that trusts only this repository, by its ID (1427173664) and its owner's (25870429), so a fork or a look-alike repository can't use it.
+   - The third lets this repository's runs in `stores` act as the service account. GitHub names them in its "immutable" form, owner and repository IDs included.
+
+   ```bash
+   gcloud config set project angelic-howl-511200-t5
+   ```
+
+   ```bash
+   gcloud iam workload-identity-pools providers create-oidc model-librarian --location=global --workload-identity-pool=github --display-name="Model Librarian" --issuer-uri=https://token.actions.githubusercontent.com --attribute-mapping=google.subject=assertion.sub --attribute-condition="assertion.repository_id=='1427173664' && assertion.repository_owner_id=='25870429'"
+   ```
+
+   ```bash
+   gcloud iam service-accounts add-iam-policy-binding linemark-release@angelic-howl-511200-t5.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="principal://iam.googleapis.com/projects/1037985269779/locations/global/workloadIdentityPools/github/subject/repo:EY4O@25870429/Chrome-Model-Librarian@1427173664:environment:stores"
+   ```
+2. In the Developer Dashboard, **Account**: check that `linemark-release@…` is the service account listed. There's nothing to add.
+3. In this repository, **Settings → Secrets and variables → Actions → Variables**: add `CWS_PUBLISHER_ID`, the same value as Linemark's (Dashboard → **Publisher → Settings**). The first run creates the `stores` environment. Add yourself to it as a required reviewer (**Settings → Environments → stores**) if you'd like to approve each submission.
+4. **Actions → Chrome Web Store → Run workflow** submits the version in `manifest.json`.
+
+`tools/store_publish.py` still takes a service account's JSON key (`CWS_SERVICE_ACCOUNT_KEY`, with `pip install google-auth requests`) instead of a token, to run it from your own computer.
 
 Each upload needs a higher version than the store's. A version that asks for new site access (0.9.0 added Danbooru's, Gelbooru's and e926's) takes longer to review, and Chrome asks people who have the extension to allow it before it updates.
 
