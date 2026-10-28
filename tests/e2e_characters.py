@@ -6,6 +6,8 @@ Gelbooru served from 127.0.0.1 (never the real sites), with a made-up character 
   - a character you have already: the panel offers to add the post as an outfit
   - ComfyUI not running: the character is left in Downloads\\Model Librarian Gallery as <tag> <time>.mlchar.json, and
     the Gallery (beside this repo) files it into a made-up Model Librarian data folder
+  - a picture saved from a post: the characters in it you don't have are offered on the page, one of yours by the same
+    name in the other order picked to link to, and filed into it (mode "link"); the saved note lists the characters
   - Gelbooru: the page's own tag groups and rating
   - CivitAI: a LoRA you have gets "Link to a character", which links it in Model Librarian
 
@@ -39,6 +41,9 @@ SEEN = []      # (host, path, query) of every request to the staged sites
 POSTED = []    # bodies posted to the fake Model Librarian's /ext/characters
 HAVE = []      # what the fake Model Librarian has
 TAG = "aurelia_(lighthouse_tales)"
+VALE = {"id": 5151, "rating": "g", "md5": "5151abcd", "file_ext": "jpg", "file_url": "https://cdn.donmai.us/original/b.jpg", "tag_string_artist": "sample_artist",
+        "tag_string_character": "vale_lumen", "tag_string_copyright": "nightglass", "tag_string_general": "1girl solo blue_hair scarf",
+        "preview_file_url": "https://cdn.donmai.us/preview/b.jpg"}  # (a made-up character, saved; you have her as "Lumen Vale")
 
 
 def jpeg(color, size=(300, 420)) -> bytes:
@@ -63,6 +68,12 @@ async def sites(request: web.Request):
         if path == "/posts/4242.json":
             return web.json_response({"id": 4242, "rating": "g", "tag_string_character": TAG, "tag_string_copyright": "lighthouse_tales",
                                       "tag_string_general": "1girl solo silver_hair white_dress smile lighthouse", "preview_file_url": "https://cdn.donmai.us/preview/a.jpg"})
+        if path == "/posts/5151":
+            return html("Post", """<aside><ul class='character-tag-list'><li class='tag-type-4' data-tag-name='vale_lumen'>
+                <a class='search-tag' href='/posts?tags=vale_lumen'>vale lumen</a></li></ul></aside>
+                <img id='image' src='https://cdn.donmai.us/sample/b.jpg' width=600 height=800>""")
+        if path == "/posts/5151.json":
+            return web.json_response(VALE)
         if path == "/related_tag.json":
             return web.json_response({"post_count": 310, "related_tags": [{"tag": {"name": n}, "frequency": f} for n, f in
                                       (("1girl", 0.95), ("long_hair", 0.8), ("blue_eyes", 0.6), ("straw_hat", 0.45), ("freckles", 0.3), ("smile", 0.7))]})
@@ -105,6 +116,8 @@ async def ml(request: web.Request):
         b = await request.json()
         POSTED.append(b)
         c = b["character"]
+        if c.get("mode") == "link":
+            return web.json_response({"character": {"id": c["target"], "name": "Lumen Vale"}, "created": False})
         HAVE.append({"id": "chr_00000001", "tag": c["tag"], "name": c["name"], "outfits": [c["outfit"]["name"]], "has_image": bool(b.get("picture"))})
         return web.json_response({"character": {"id": "chr_00000001", "name": c["name"]}, "created": True})
     return web.json_response({"error": "not here"}, status=404)
@@ -196,6 +209,43 @@ async def run(check, downloads):
               "  a character you have: Add as outfit to it, named after the post")
         await click(c, '[data-act="close"]')
         await ws.close()
+
+        # ---- a picture saved from a post: its characters you don't have offered there, one of yours by name linked
+        HAVE.append({"id": "chr_00000009", "tag": "", "name": "Lumen Vale", "aliases": [], "series": "", "outfits": [], "has_image": False})
+        ws, c = await M.tab("https://danbooru.donmai.us/posts/5151", scale=1)
+        await c.wait("document.querySelector('.ml-char-add')", 20)
+        r = await pop.js("""(async () => { const [t] = await chrome.tabs.query({ url: "https://danbooru.donmai.us/posts/5151" });
+            const g = await chrome.runtime.sendMessage({ type: "galleryPage", tabId: t.id });
+            return chrome.runtime.sendMessage({ type: "gallerySave", items: g.items, tabId: t.id }); })()""")
+        check(bool(r and r.get("saved") == 1), f"saved from a post ({r})")
+        offer = ""
+        for _ in range(60):
+            offer = await c.js(f"(() => {{ const o = ({PANEL})?.querySelector('.offer'); return o && !o.hidden ? o.innerText : ''; }})()") or ""
+            if offer:
+                break
+            await asyncio.sleep(0.25)
+        check("Vale Lumen isn't one of your characters yet" in offer, f"  the page offers the character you don't have ({offer[:80]!r})")
+        notes = [x for x in os.listdir(folder) if x.endswith(".mlg.json")] if os.path.isdir(folder) else []
+        note = {}
+        if notes:
+            with open(os.path.join(folder, notes[0]), encoding="utf-8") as f:
+                note = json.load(f)
+        nc = (note.get("characters") or [{}])[0]
+        check(nc.get("tag") == "vale_lumen" and nc.get("name") == "Vale Lumen" and nc.get("series") == "Nightglass" and "blue hair" in nc.get("appearance", []),
+              f"  the saved note lists the post's characters, each as + Character would file it ({nc})")
+        await c.js(f"{PANEL}.querySelector('[data-act=\"offer-open\"]').click()")
+        txt = await panel_text(c, "Link to one of yours")
+        pressed = await c.js(f"[...{PANEL}.querySelectorAll('.pick[aria-pressed=true]')].map((b) => b.innerText).join('|')")
+        check("Lumen Vale" in (pressed or "") and "the name stays yours" in txt, f"  Add or link: yours by the same name in the other order, picked ({pressed!r})")
+        n = len(POSTED)
+        await click(c, '[data-act="save"]')
+        txt = await panel_text(c, "Model Librarian.")
+        ch = (POSTED[-1] if len(POSTED) > n else {}).get("character") or {}
+        check(ch.get("mode") == "link" and ch.get("target") == "chr_00000009" and ch.get("tag") == "vale_lumen" and "Added to your character in Model Librarian" in txt,
+              f"  filed into yours: mode link, its id ({ch.get('mode')}, {ch.get('target')})")
+        await ws.close()
+        for x in os.listdir(folder):  # (the saved picture is the Gallery's business, not this test's)
+            os.remove(os.path.join(folder, x))
 
         # ---- ComfyUI not running: left for the Gallery
         await pop.js("chrome.runtime.sendMessage({ type: 'settings', base: 'http://127.0.0.1:8219' })")  # (nothing there)

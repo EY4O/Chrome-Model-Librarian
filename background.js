@@ -344,9 +344,37 @@ async function hush(on) {
   try { await chrome.downloads.setUiOptions({ enabled: quiet <= 0 }); } catch {}
 }
 
-async function gallerySave(items) {
-  const list = (Array.isArray(items) ? items : []).filter((it) => it && /^https?:\/\//.test(String(it.src || ""))).slice(0, 200);
+// a booru post's characters, for the notes: each as + Character would file it (the post read once for its pictures)
+async function withCharacters(list) {
+  const posts = new Map();
+  for (const it of list) {
+    if (!Array.isArray(it.characters) || !it.characters.length || typeof it.characters[0] !== "string") continue;
+    const where = B.postOf(String(it.page || ""));
+    const tags = it.characters;
+    try {
+      if (!where || where.page || E_SITES.includes(where.site)) throw new Error("not Danbooru");
+      if (!posts.has(where.id)) posts.set(where.id, B.fetchDanbooru(where));
+      it.characters = B.noteCharacters(await posts.get(where.id));
+    } catch {
+      it.characters = tags.slice(0, 12).map((t) => ({ tag: t, name: B.nameFromTag(t) }));  // (Danbooru didn't answer: its name, sorted later)
+    }
+  }
+}
+
+// after a save from a post: the characters in it you don't have yet, offered on the page (content/booru.js)
+async function offerCharacters(tabId, list) {
+  if (tabId == null) return;
+  const tags = [...new Set(list.flatMap((it) => (Array.isArray(it.characters) ? it.characters.map((c) => c.tag) : [])))];
+  if (!tags.length) return;
+  const known = await knownCharacters().catch(() => []);
+  const missing = tags.filter((t) => !known.some((k) => B.norm(k.tag) === B.norm(t)));
+  if (missing.length) chrome.tabs.sendMessage(tabId, { type: "charOffer", tags: missing }).catch(() => {});
+}
+
+async function gallerySave(items, tabId) {
+  const list = (Array.isArray(items) ? items : []).filter((it) => it && /^https?:\/\//.test(String(it.src || ""))).slice(0, 200).map((it) => ({ ...it }));
   if (!list.length) return { saved: 0, failed: [], error: "Nothing to save" };
+  await withCharacters(list);
   await setupRules();
   await hush(true);
   let saved = 0;
@@ -375,6 +403,7 @@ async function gallerySave(items) {
   } finally {
     await hush(false);
   }
+  if (saved) offerCharacters(tabId, list);
   return { saved, failed, error: !saved && failed.length ? failed[0].error : undefined };
 }
 
@@ -399,7 +428,7 @@ async function saveImage(src, tab) {
   let items = null;
   if (tab && tab.id != null) items = await chrome.tabs.sendMessage(tab.id, { type: "galleryItemsFor", src }).catch(() => null);
   if (!Array.isArray(items) || !items.length) items = [{ src, page: tab && tab.url, title: tab && tab.title }];
-  const r = await gallerySave(items);
+  const r = await gallerySave(items, tab && tab.id);
   chrome.notifications?.create(`ml-gallery-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png",
     title: r.saved ? `Saved for Model Librarian Gallery${r.saved > 1 ? ` (${r.saved})` : ""}` : "Didn't save it",
     message: r.saved ? `${items[0].artist ? `By ${items[0].artist}. ` : ""}It's in the Gallery's New downloads, ready to file.` : String(r.error || "") });
@@ -420,7 +449,7 @@ async function knownCharacters() {
   const r = await withComfy((base) => comfy.api(base, "/ext/characters", { timeout: 5000 }));
   let { charsKnown, charsLeft } = await chrome.storage.local.get({ charsKnown: [], charsLeft: [] });
   if (r && Array.isArray(r.characters)) {
-    charsKnown = r.characters.map((c) => ({ tag: c.tag, name: c.name, outfits: c.outfits || [] }));
+    charsKnown = r.characters.map((c) => ({ id: c.id, tag: c.tag, name: c.name, aliases: c.aliases || [], series: c.series || "", outfits: c.outfits || [] }));
     charsLeft = charsLeft.filter((x) => !charsKnown.some((k) => B.norm(k.tag) === B.norm(x.tag)));  // (the Gallery has filed it)
     await chrome.storage.local.set({ charsKnown, charsLeft });
   }
@@ -446,7 +475,9 @@ async function charDraft(msg) {
     const kept = Object.entries(cache).sort((a, b) => b[1].at - a[1].at).slice(0, LOOKS_KEPT);
     await chrome.storage.local.set({ looks: Object.fromEntries(kept) });
   }
-  return { post, drafts: B.draftsFor(post, looks, await knownCharacters(), msg.tag), failed, skipped };
+  const known = await knownCharacters();
+  return { post, drafts: B.draftsFor(post, looks, known, Array.isArray(msg.only) && msg.only.length ? msg.only : msg.tag), failed, skipped,
+    known: known.filter((k) => k.id).map((k) => ({ id: k.id, name: k.name, aliases: k.aliases || [], series: k.series || "", tag: k.tag || "", outfits: k.outfits || [] })) };
 }
 
 // a post's preview as a small picture (256 px at most) for the character, as a data: URL
@@ -562,7 +593,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return { ok: true, item: out.item, added: out.added };
       }
       case "state": return load();
-      case "gallerySave": return gallerySave(msg.items);
+      case "gallerySave": return gallerySave(msg.items, fromPage ? sender.tab && sender.tab.id : msg.tabId);
       case "charDraft": return charDraft(msg);
       case "charSave": return charSave(msg);
       case "charList": return withComfy((base) => comfy.api(base, "/ext/characters", { timeout: 5000 }));

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Model Librarian",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "One-click downloads from CivitAI and HuggingFace into ComfyUI via Model Librarian, pictures for its Gallery, booru characters.",
   "minimum_chrome_version": "121",
   "icons": {

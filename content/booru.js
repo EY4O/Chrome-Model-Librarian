@@ -1,6 +1,7 @@
 // "+ Character" beside each character tag on a booru post (Danbooru, Gelbooru, Safebooru, e621): a panel on the page
 // sorts that character's usual look into appearance, outfit and skip (from Danbooru's related tags and the post), and
-// files it into Model Librarian's character list, or leaves it for the Gallery when ComfyUI isn't running. The service
+// files it into Model Librarian's character list (new, or linked to one of yours), or leaves it for the Gallery when
+// ComfyUI isn't running. A picture saved from the post offers the characters in it you don't have yet. The service
 // worker reads the post and Danbooru (lib/booru.js); a Gelbooru-style page sends the tag groups it shows.
 (() => {
   if (window.__mlCharacters) return;
@@ -14,6 +15,8 @@
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const show = (t) => String(t || "").replace(/_/g, " ");
+  const norm = (t) => show(t).toLowerCase().replace(/\s+/g, " ").trim();
+  const named = (t) => show(t).replace(/\s*\(.*\)$/, "").replace(/\b\w/g, (c) => c.toUpperCase());
 
   // ---------------------------------------------------------------- what the page shows
   function tagFromRow(li) {
@@ -89,19 +92,34 @@
     .chip.skip { background: transparent; color: #9a9aa3; }
     .spacer { flex: 1; }
     .status { width: 100%; }
+    .picks { display: flex; flex-direction: column; gap: 4px; }
+    .pick { display: flex; align-items: baseline; gap: 8px; text-align: left; background: #24262d; color: #e8e8ea; border: 1px solid #2f323b; font-weight: 500; padding: 6px 10px; }
+    .pick[aria-pressed=true] { border-color: #2f7cf6; background: rgba(47,124,246,.18); }
+    .pick .dim { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+    .offer { position: fixed; z-index: 2147483000; right: 12px; bottom: 12px; max-width: min(420px, calc(100vw - 24px)); display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding: 10px 12px; background: #16171c; color: #e8e8ea; border: 1px solid #2f323b; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+      font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; transform: translateY(8px); opacity: 0; transition: transform .2s ease-out, opacity .2s ease-out; }
+    .offer.open { transform: none; opacity: 1; }
+    .offer[hidden] { display: none; }
+    .offer img { width: 20px; height: 20px; }
+    .offer .otext { flex: 1 1 200px; min-width: 0; }
+    @media (prefers-reduced-motion: reduce) { .offer { transition: none; } }
   </style><aside class="panel" hidden role="dialog" aria-modal="false" aria-labelledby="ml-chars-h">
     <header><img alt=""><h2 id="ml-chars-h" tabindex="-1">Add to your characters</h2><button type="button" class="x" data-act="close" aria-label="Close">×</button></header>
     <div class="body"></div>
     <footer><span class="status dim" role="status"></span><span class="spacer"></span><button type="button" class="ghost" data-act="close">Close</button><button type="button" data-act="save">Save</button></footer>
-  </aside>`;
-  root.querySelector("header img").src = chrome.runtime.getURL("icons/icon32.png");
+  </aside><div class="offer" hidden role="status" aria-live="polite"><img alt=""><span class="otext"></span>
+    <button type="button" data-act="offer-open">Add or link…</button><button type="button" class="ghost" data-act="offer-close">Not now</button></div>`;
+  root.querySelector("header img").src = root.querySelector(".offer img").src = chrome.runtime.getURL("icons/icon32.png");
+  const offer = root.querySelector(".offer");
+  let offerTags = [];
   const panel = root.querySelector(".panel"), body = root.querySelector(".body"), status = root.querySelector(".status"), saveBtn = root.querySelector('[data-act="save"]');
   document.documentElement.append(box);
 
   const NEXT = { appearance: "outfit", outfit: "skip", skip: "appearance" };
   const MAX = 12;  // characters saved at once (the service worker's limit)
-  const FIELDS = new Set(["name", "series", "outfitName"]);  // the only things an input on the panel sets
-  let state = null; // {post, drafts, failed, skipped, busy, done}
+  const FIELDS = new Set(["name", "series", "outfitName", "find"]);  // the only things an input on the panel sets
+  let state = null; // {post, drafts, known, failed, skipped, busy, done}
   let opener = null;  // what had the focus when the panel opened: it gets it back
   // a message to the service worker; after the extension was updated this page's script can't reach it any more
   const send = (msg) => {
@@ -114,6 +132,22 @@
     const pct = x.f == null ? "" : `<i>${Math.round(x.f * 100)}%</i>`;
     return `<button type="button" class="chip ${x.b}" data-act="move" data-i="${i}" data-j="${j}" aria-label="${esc(show(x.t))}: ${x.b}, click to move to ${NEXT[x.b]}">${esc(show(x.t))}${pct}</button>`;
   }
+  // one of yours to link a character to: the ones by its name first, then any you search for
+  function picks(d, i) {
+    const known = state.known || [];
+    const q = norm(d.find);
+    let list = q ? known.filter((k) => [k.name, ...(k.aliases || [])].some((n) => norm(n).includes(q))) : known.filter((k) => (d.suggest || []).includes(k.id));
+    if (d.link && !list.some((k) => k.id === d.link.id)) list = [known.find((k) => k.id === d.link.id) || d.link, ...list];
+    if (!list.length) return `<span class="dim">${q ? "None of yours is called that." : "Type a name to find one of yours."}</span>`;
+    return list.slice(0, 6).map((k) => `<button type="button" class="pick" data-act="link" data-i="${i}" data-id="${esc(k.id)}" aria-pressed="${!!d.link && d.link.id === k.id}">
+      <span>${esc(k.name)}</span><span class="dim">${esc(k.series || (k.tag ? show(k.tag) : ""))}</span></button>`).join("");
+  }
+  function linker(d, i) {
+    if (!(state.known || []).length) return '<p class="dim">Your characters can\'t be listed: ComfyUI isn\'t running. Start it to link to one of yours.</p>';
+    return `<label class="f">Find one of yours<input type="text" data-field="find" data-i="${i}" value="${esc(d.find || "")}" placeholder="Name" spellcheck="false" autocomplete="off"></label>
+      <div class="picks" data-picks="${i}" role="group" aria-label="Your characters">${picks(d, i)}</div>
+      ${d.link ? `<div class="dim">Its tag and this post's look go to ${esc(d.link.name)}; the name stays yours.</div>` : ""}`;
+  }
   function card(d, i) {
     const n = (b) => d.buckets.filter((x) => x.b === b).length;
     const chips = (b) => d.buckets.map((x, j) => (x.b === b ? chip(d, i, j) : "")).join("") || '<span class="dim">None</span>';
@@ -123,8 +157,11 @@
       <div class="dim">${esc(show(d.tag))} · ${kv}</div>
       ${d.include ? `
       ${d.have ? `<div class="seg" role="group" aria-label="What to do">${[["outfit", `Add as outfit to ${d.have.name}`], ["new", "New character"]].map(([v, l]) =>
-        `<button type="button" data-act="mode" data-i="${i}" data-v="${v}" aria-pressed="${d.mode === v}">${esc(l)}</button>`).join("")}</div>` : ""}
-      <div class="row">${!d.have || d.mode === "new" ? `<label class="f">Name<input type="text" data-field="name" data-i="${i}" value="${esc(d.name)}" spellcheck="false"></label>
+        `<button type="button" data-act="mode" data-i="${i}" data-v="${v}" aria-pressed="${d.mode === v}">${esc(l)}</button>`).join("")}</div>`
+        : `<div class="seg" role="group" aria-label="What to do">${[["outfit", "New character"], ["link", "Link to one of yours"]].map(([v, l]) =>
+        `<button type="button" data-act="mode" data-i="${i}" data-v="${v}" aria-pressed="${(d.mode === "link") === (v === "link")}">${esc(l)}</button>`).join("")}</div>`}
+      ${!d.have && d.mode === "link" ? linker(d, i) : ""}
+      <div class="row">${(!d.have && d.mode !== "link") || d.mode === "new" ? `<label class="f">Name<input type="text" data-field="name" data-i="${i}" value="${esc(d.name)}" spellcheck="false"></label>
         <label class="f">Series<input type="text" data-field="series" data-i="${i}" value="${esc(d.series)}" spellcheck="false"></label>` : ""}
         <label class="f">Outfit name<input type="text" data-field="outfitName" data-i="${i}" value="${esc(d.outfitName)}" spellcheck="false"></label></div>
       <div class="group">Appearance · ${n("appearance")}</div><div class="chips">${chips("appearance")}</div>
@@ -135,9 +172,10 @@
   function draw() {
     if (!state) return;
     const picked = state.drafts ? state.drafts.filter((d) => d.include).length : 0;
+    const unlinked = state.drafts ? state.drafts.some((d) => d.include && !d.have && d.mode === "link" && !d.link) : false;
     saveBtn.hidden = !!state.done;
-    saveBtn.disabled = !!state.busy || !picked || picked > MAX;
-    saveBtn.textContent = state.busy === "saving" ? "Saving…" : picked > MAX ? `Up to ${MAX} at a time` : picked > 1 ? `Save ${picked} characters` : "Save";
+    saveBtn.disabled = !!state.busy || !picked || picked > MAX || unlinked;
+    saveBtn.textContent = state.busy === "saving" ? "Saving…" : picked > MAX ? `Up to ${MAX} at a time` : unlinked ? "Pick one of yours to link" : picked > 1 ? `Save ${picked} characters` : "Save";
     if (state.busy === "reading") { body.innerHTML = `<p class="dim">${e621 ? "Reading the post…" : "Reading the post and Danbooru…"}</p>`; return; }
     if (state.error) { body.innerHTML = `<p class="err">${esc(state.error)}</p>`; return; }
     if (state.done) {
@@ -154,7 +192,7 @@
       <p class="dim">Click a tag to move it: appearance → outfit → skip. The % is how often it's on the character's posts.</p>`;
   }
 
-  async function open(tag) {
+  async function open(tag, only) {
     if (panel.hidden) opener = document.activeElement;
     const mine = state = { busy: "reading", drafts: [] };
     panel.hidden = false;
@@ -162,11 +200,11 @@
     status.textContent = "";
     draw();
     root.getElementById("ml-chars-h").focus();
-    const msg = { type: "charDraft", url: location.href, tag };
+    const msg = { type: "charDraft", url: location.href, tag, only };
     if (!donmai && !e621) msg.groups = groups();
     const r = await send(msg);
     if (state !== mine) return;  // (closed, or another opened, meanwhile)
-    state = r && !r.error ? { post: r.post, drafts: r.drafts, failed: r.failed, skipped: r.skipped } : { error: (r && r.error) || "Couldn't read this post", drafts: [] };
+    state = r && !r.error ? { post: r.post, drafts: r.drafts, known: r.known || [], failed: r.failed, skipped: r.skipped } : { error: (r && r.error) || "Couldn't read this post", drafts: [] };
     draw();
   }
   function close() {
@@ -201,8 +239,21 @@
     if (k) root.querySelector(k)?.focus();
   };
 
+  // after a picture of this post is saved: the characters in it you don't have yet (background.js says which)
+  function showOffer(tags) {
+    offerTags = tags;
+    const names = tags.map(named);
+    root.querySelector(".otext").textContent = names.length === 1 ? `Saved. ${names[0]} isn't one of your characters yet.`
+      : `Saved. ${names.length} characters in it aren't yours yet: ${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}.`;
+    offer.hidden = false;
+    requestAnimationFrame(() => offer.classList.add("open"));
+  }
+  function hideOffer() { offer.classList.remove("open"); offer.hidden = true; }
+
   root.addEventListener("click", (e) => {
     const el = e.target.closest("[data-act]");
+    if (el && el.dataset.act === "offer-close") return hideOffer();
+    if (el && el.dataset.act === "offer-open") { hideOffer(); opener = document.activeElement; return open(null, offerTags); }
     if (!el || !state) return;
     const d = state.drafts && state.drafts[+el.dataset.i];
     const act = el.dataset.act;
@@ -218,7 +269,18 @@
       d.mode = el.dataset.v;
       if (d.mode === "new" && d.have) d.outfitName = "default";
       else if (d.have) d.outfitName = `post ${state.post.id}`;
+      else if (d.mode === "link" && !d.link && (d.suggest || []).length) {
+        const k = (state.known || []).find((x) => x.id === d.suggest[0]);
+        if (k) d.link = { id: k.id, name: k.name, outfits: k.outfits || [] };
+      }
+      if (!d.have) d.outfitName = d.mode === "link" && d.link && d.link.outfits.length ? `post ${state.post.id}` : "default";
       el.focus();
+      keepFocus(draw);
+    }
+    if (act === "link" && d) {
+      const k = (state.known || []).find((x) => x.id === el.dataset.id);
+      if (k) d.link = { id: k.id, name: k.name, outfits: k.outfits || [] };
+      d.outfitName = d.link && d.link.outfits.length ? `post ${state.post.id}` : "default";
       keepFocus(draw);
     }
   });
@@ -229,6 +291,10 @@
   root.addEventListener("input", (e) => {
     const el = e.target;
     if (FIELDS.has(el.dataset.field) && state && state.drafts[+el.dataset.i]) state.drafts[+el.dataset.i][el.dataset.field] = el.value;
+    if (el.dataset.field === "find" && state) {  // (only the list redrawn: the box keeps its caret)
+      const box = root.querySelector(`[data-picks="${el.dataset.i}"]`);
+      if (box) box.innerHTML = picks(state.drafts[+el.dataset.i], +el.dataset.i);
+    }
   });
   // keys typed in the panel are the panel's: the site's own shortcuts (next post, edit tags...) don't see them
   root.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") close(); });
@@ -268,6 +334,7 @@
   // the right-click menu's "Add characters from this post" (when the page's tag list isn't one this knows)
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg?.type === "charOpen") { open(null); reply({ ok: true }); }
+    if (msg?.type === "charOffer" && Array.isArray(msg.tags) && msg.tags.length) { showOffer(msg.tags.map(String).slice(0, 12)); reply({ ok: true }); }
     return false;
   });
 })();

@@ -105,7 +105,8 @@
       return [{ src: p.file_url, thumb: p.preview_file_url || p.file_url, name: this.named(p.md5, "." + p.file_ext, artist, (p.tag_string_character || "").split(" ")[0]),
         page: `https://danbooru.donmai.us/posts/${id}`, site: "danbooru", post: String(id), artist: artist.replace(/_/g, " "),
         artist_url: artist ? `https://danbooru.donmai.us/artists/show_or_new?name=${encodeURIComponent(artist)}` : undefined,
-        tags: [p.tag_string_character, p.tag_string_copyright, p.tag_string_general].join(" ").split(" ").filter(Boolean).map((t) => t.replace(/_/g, " ")) }];
+        tags: [p.tag_string_character, p.tag_string_copyright, p.tag_string_general].join(" ").split(" ").filter(Boolean).map((t) => t.replace(/_/g, " ")),
+        characters: (p.tag_string_character || "").split(" ").filter(Boolean) }];  // (each one as a character for the note: background.js)
     },
     async e621(id) {
       const { post: p } = await json(`/posts/${id}.json`);

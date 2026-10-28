@@ -52,3 +52,9 @@ test("the note beside each picture: only what's known", () => {
   assert.deepEqual(n.tags, ["a", "b"]);
   assert.equal(plain("<p>Hello<br>there &amp; you</p>"), "Hello\nthere & you");
 });
+
+test("a booru post's characters go in the note", () => {
+  const n = noteFor({ src: "https://x/y.png", tags: ["a"], characters: [{ tag: "aurelia_(lighthouse_tales)", name: "Aurelia", series: "Lighthouse Tales", appearance: ["silver hair", ""], outfit: ["white dress"] }, null, "x"] });
+  assert.deepEqual(n.characters, [{ tag: "aurelia_(lighthouse_tales)", name: "Aurelia", series: "Lighthouse Tales", appearance: ["silver hair"], outfit: ["white dress"] }]);
+  assert.equal(noteFor({ src: "https://x/y.png" }).characters, undefined);
+});

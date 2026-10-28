@@ -143,3 +143,22 @@ test("a file name Chrome takes, and pictures only from the boorus' own servers",
 test("Danbooru's 429 is told apart (no more asking for a while)", async () => {
   await assert.rejects(fetchLook("x", {}, async () => json({}, 429)), (e) => e.status === 429);
 });
+
+test("a name in either order, and linking to one of yours", async () => {
+  const { nameKey, noteCharacters } = await import("../lib/booru.js");
+  assert.equal(nameKey("vale_lumen"), nameKey("Lumen Vale"));
+  assert.equal(nameKey("lumen vale (lighthouse tales)"), nameKey("Lumen Vale"));
+  const post = { ...POST, characters: ["vale lumen"] };
+  const mine = { id: "chr_bbbb0001", tag: "", name: "Lumen Vale", aliases: [], outfits: [] };
+  const [d] = draftsFor(post, {}, [mine, { id: "chr_cccc0002", tag: "", name: "Nova", outfits: [] }], null);
+  assert.deepEqual([d.mode, d.link && d.link.id, d.suggest, d.outfitName], ["link", "chr_bbbb0001", ["chr_bbbb0001"], "default"], "yours by name, linked at first");
+  const imp = importOf(d, post);
+  assert.deepEqual([imp.mode, imp.target, imp.tag], ["link", "chr_bbbb0001", "vale_lumen"]);
+  const [d2] = draftsFor(post, {}, [{ ...mine, tag: "someone_else" }], null);
+  assert.deepEqual([d2.mode, d2.link], ["outfit", null], "one with a tag of its own isn't suggested");
+  assert.equal(importOf({ ...d2, mode: "link" }, post).mode, "outfit", "link without one picked: filed by its tag");
+  const [n] = noteCharacters({ ...POST, characters: ["aurelia (lighthouse tales)"] });
+  assert.deepEqual(Object.keys(n), ["tag", "name", "series", "appearance", "outfit"]);
+  assert.equal(n.tag, "aurelia_(lighthouse_tales)");
+  assert.equal(n.name, "Aurelia");
+});

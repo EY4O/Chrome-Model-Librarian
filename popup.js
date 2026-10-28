@@ -123,7 +123,8 @@ $("gallerySave").onclick = async () => {
   const items = picks.filter((p) => p.on).map((p) => p.item);
   $("gallerySave").disabled = true;
   $("galleryMsg").textContent = `Saving ${items.length}…`;
-  const r = await send({ type: "gallerySave", items });
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const r = await send({ type: "gallerySave", items, tabId: tab && tab.id });  // (a post's characters you don't have: offered on its page)
   $("galleryMsg").textContent = r && r.saved ? `Saved ${r.saved}${r.failed && r.failed.length ? `; ${r.failed.length} didn't (${r.failed[0].error})` : ""}. They're in the Gallery's New downloads.`
     : `Didn't save: ${(r && r.error) || "something went wrong"}`;
   $("gallerySave").disabled = false;
