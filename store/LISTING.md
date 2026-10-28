@@ -1,6 +1,6 @@
 # Chrome Web Store listing: Model Librarian
 
-**Item ID:** not yet (it's assigned at the first upload).
+**Item ID:** `dnopofnpaeindcbbgfhfjkbnjmmjjkcc` ([store page](https://chromewebstore.google.com/detail/model-librarian/dnopofnpaeindcbbgfhfjkbnjmmjjkcc)).
 
 Paste each section into the matching field of the [Developer Dashboard](https://chrome.google.com/webstore/devconsole), the same account as Linemark. The images are in `store/images/`; rebuild them with `python tools/store_images.py`. Build the upload ZIP with `python tools/package.py`.
 
@@ -8,14 +8,16 @@ Paste each section into the matching field of the [Developer Dashboard](https://
 
 ## Package
 
-Upload `dist/model-librarian-0.6.1.zip` (**New item → Upload**). The ZIP is git-ignored, so build it first.
+New versions upload themselves: a push to main that changes `"version"` in `manifest.json` runs `.github/workflows/store.yml`, which tests, builds the ZIP, uploads it and submits it for review (see **Publishing from GitHub** below). By hand: **Package → Upload new package** with `dist/model-librarian-<version>.zip` (git-ignored, so build it first), then **Submit for review**.
+
+The upload only replaces the package and the summary (the manifest `description`). The description, images and privacy answers below are edited in the dashboard by hand when they change.
 
 ## Store listing tab
 
 **Name** (from the manifest): `Model Librarian`
 
-**Summary** (the manifest `description`, 130 of 132 characters):
-> One-click downloads from CivitAI and HuggingFace into ComfyUI via Model Librarian, and pictures saved for Model Librarian Gallery.
+**Summary** (the manifest `description`, 126 of 132 characters):
+> One-click downloads from CivitAI and HuggingFace into ComfyUI via Model Librarian, pictures for its Gallery, booru characters.
 
 **Category:** Developer Tools (or the closest the dashboard offers)
 
@@ -42,6 +44,11 @@ On a CivitAI image or post, the checkpoint and every LoRA it used, in one click,
 
 Saves pictures for Model Librarian Gallery
 Right-click any picture, or use the Save button on supported art sites, and it's saved full size to your Downloads folder with a note of its page, artist, title and tags, ready for the Gallery to file.
+
+Characters from the boorus
+A + Character button beside each character tag on Danbooru, Gelbooru, Safebooru and e621 sorts the character's usual look into appearance and outfit tags, and saves it to Model Librarian's character list, the one the Gallery shares.
+Saving a picture from a Danbooru post offers the characters in it you don't have yet, to add or to link to one of yours.
+On a CivitAI LoRA page, a LoRA you have can be linked to a character, so Character Select loads it with its trigger words.
 
 Your keys stay home
 CivitAI and HuggingFace keys live in Model Librarian, never in the extension. No account, no analytics, and nothing is sent to the developer.
@@ -70,7 +77,7 @@ The screenshots use the README captures in `docs/images/`, taken on staged pages
 ## Privacy tab
 
 **Single purpose:**
-> Send models and pictures from the web to the user's own Model Librarian apps: model files into their ComfyUI, and pictures into their Model Librarian Gallery folder.
+> Send models, pictures and characters from the web to the user's own Model Librarian apps: model files into their ComfyUI, pictures into their Model Librarian Gallery folder, and characters into their Model Librarian character list.
 
 **Permission justifications:**
 
@@ -81,7 +88,7 @@ The screenshots use the README captures in `docs/images/`, taken on staged pages
 | `scripting` | Two uses, both at the user's request: when ComfyUI can't be reached directly, the request to Model Librarian runs inside the user's open ComfyUI tab; and "Save from this page" in the popup reads the pictures on the current tab. |
 | `declarativeNetRequestWithHostAccess` | Changes headers only on the extension's own requests: removes the Origin header on requests to the user's local ComfyUI (127.0.0.1 / localhost), which otherwise refuses them, and sets Pixiv's referrer on requests to i.pximg.net, which won't serve full-size pictures without it. |
 | `notifications` | Says when a download finishes or fails. |
-| `contextMenus` | Adds "Download with Model Librarian" on CivitAI model links and "Save to Model Librarian Gallery" on pictures. |
+| `contextMenus` | Adds "Download with Model Librarian" on CivitAI model links, "Save to Model Librarian Gallery" on pictures and "Add characters from this post" on booru posts. |
 | `downloads` | Saves the pictures the user chooses, with a small note of their page, artist, title and tags, into Downloads\Model Librarian Gallery. |
 | `downloads.ui` | Hides the download bubble while several pictures are saved at once, and turns it back on afterwards. |
 | `activeTab` | Lets "Save from this page" read the pictures of the tab the user is on when they open the popup. |
@@ -90,6 +97,7 @@ The screenshots use the README captures in `docs/images/`, taken on staged pages
 | Host `civitai.com`, `civitai.green`, `civitai.red` | Shows the download panel and badges, and reads the public model details for the page the user is on from CivitAI's public API (without cookies). |
 | Host and content script on `huggingface.co`, `civarchive.com` | Shows the download panel on file and model pages. |
 | Host on Pixiv, X / Twitter, DeviantArt, Danbooru, Gelbooru, Safebooru, yande.re, Konachan, e621, Pawchive, i.pximg.net | Shows the Save button on pictures, and reads the full-size picture and its title, artist and tags when the user saves it. |
+| Host and content script on Danbooru (`*.donmai.us`), Gelbooru (`*.gelbooru.com`), Safebooru, e621 and e926 (and `static1.e621.net` / `static1.e926.net`) | Shows the + Character button on posts, and reads the post and the character's public related tags (without cookies) when the user adds a character, plus the post's small picture. |
 | Optional host `http://*/*`, `https://*/*` | Requested only when the user sets a ComfyUI address on another computer (for example over Tailscale), and only for that one address. |
 
 **Remote code:** No, I am not using remote code. All scripts are packaged with the extension.
@@ -112,6 +120,17 @@ The screenshots use the README captures in `docs/images/`, taken on staged pages
 
 - **Visibility:** Public (Linemark started as Unlisted; this one launches with the suite on 3 Nov).
 - **Regions:** all.
+
+## Publishing from GitHub
+
+`.github/workflows/store.yml` runs on a push to main that changes `manifest.json`'s version (or by hand: **Actions → Chrome Web Store → Run workflow**, which submits the version in `manifest.json` now). It runs the tests, builds the ZIP, and `tools/store_publish.py` uploads it and submits it for review with the [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api) as a service account. One-time setup:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project (or pick one) and enable the **Chrome Web Store API**.
+2. **IAM & Admin → Service accounts → Create service account**. It needs no roles. On the account, **Keys → Add key → JSON** downloads its key.
+3. In the Developer Dashboard, **Account**: add the service account's email (a publisher can have one).
+4. In this repository, **Settings → Secrets and variables → Actions**: the secret `CWS_SERVICE_ACCOUNT_KEY` (the whole JSON key), and the variables `CWS_PUBLISHER_ID` (Dashboard → **Publisher → Settings**) and `CWS_EXTENSION_ID` (`dnopofnpaeindcbbgfhfjkbnjmmjjkcc`). Then delete the downloaded key file.
+
+Each upload needs a higher version than the store's. A version that asks for new site access (0.9.0 added Danbooru's, Gelbooru's and e926's) takes longer to review, and Chrome asks people who have the extension to allow it before it updates.
 
 ## Edge Add-ons
 

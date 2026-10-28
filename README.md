@@ -5,6 +5,7 @@
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/EY4O/Chrome-Model-librarian" alt="License"></a>
     <a href="https://github.com/EY4O/Chrome-Model-librarian/commits/main"><img src="https://img.shields.io/github/last-commit/EY4O/Chrome-Model-librarian" alt="Last commit"></a>
+    <a href="https://chromewebstore.google.com/detail/model-librarian/dnopofnpaeindcbbgfhfjkbnjmmjjkcc"><img src="https://img.shields.io/badge/Chrome%20Web%20Store-Model%20Librarian-4285F4?logo=googlechrome&logoColor=white" alt="Chrome Web Store"></a>
     <a href="https://ko-fi.com/looneth"><img src="https://img.shields.io/badge/Ko--fi-Support-FF813F?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
   </p>
 </div>
@@ -45,7 +46,17 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 
 ## 📦 Installation
 
-### Load unpacked
+### Option 1: **Chrome Web Store** (Recommended)
+
+1. Open [Model Librarian on the Chrome Web Store](https://chromewebstore.google.com/detail/model-librarian/dnopofnpaeindcbbgfhfjkbnjmmjjkcc) and click **Add to Chrome**.
+2. Pin **Model Librarian** to the toolbar.
+
+It updates by itself. In Edge, the same page works once you allow extensions from other stores (Edge offers it on the page, or **edge://extensions → Allow extensions from other stores**).
+
+### Option 2: **Load unpacked**
+
+For the newest version before the store has reviewed it, or to change the code.
+
 
 1. Download this repository (**Code → Download ZIP**, then unzip) or clone it:
    ```bash

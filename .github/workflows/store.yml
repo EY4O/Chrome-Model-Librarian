@@ -1,0 +1,42 @@
+name: Chrome Web Store
+# A push to main that changes manifest.json's version uploads that version and submits it for
+# review. Run it by hand (Actions → Chrome Web Store → Run workflow) to submit the current one.
+on:
+  push:
+    branches: [main]
+    paths: [manifest.json]
+  workflow_dispatch:
+
+concurrency: chrome-web-store
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version changed?
+        id: version
+        run: |
+          now=$(jq -r .version manifest.json)
+          before=$(git show "${{ github.event.before }}:manifest.json" 2>/dev/null | jq -r .version || true)
+          echo "$before -> $now"
+          if [ "${{ github.event_name }}" = workflow_dispatch ] || [ "$before" != "$now" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.version.outputs.publish
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - if: steps.version.outputs.publish
+        run: node --test
+      - if: steps.version.outputs.publish
+        run: |
+          pip install --quiet google-auth requests
+          python3 tools/package.py
+          python3 tools/store_publish.py
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
