@@ -233,8 +233,12 @@ async def run(check, downloads):
         nc = (note.get("characters") or [{}])[0]
         check(nc.get("tag") == "vale_lumen" and nc.get("name") == "Vale Lumen" and nc.get("series") == "Nightglass" and "blue hair" in nc.get("appearance", []),
               f"  the saved note lists the post's characters, each as + Character would file it ({nc})")
+        if os.environ.get("ML_E2E_SHOTS"):
+            await M.shot(c, os.path.join(os.environ["ML_E2E_SHOTS"], "characters-offer.png"))
         await c.js(f"{PANEL}.querySelector('[data-act=\"offer-open\"]').click()")
         txt = await panel_text(c, "Link to one of yours")
+        if os.environ.get("ML_E2E_SHOTS"):
+            await M.shot(c, os.path.join(os.environ["ML_E2E_SHOTS"], "characters-link.png"))
         pressed = await c.js(f"[...{PANEL}.querySelectorAll('.pick[aria-pressed=true]')].map((b) => b.innerText).join('|')")
         check("Lumen Vale" in (pressed or "") and "the name stays yours" in txt, f"  Add or link: yours by the same name in the other order, picked ({pressed!r})")
         n = len(POSTED)

@@ -136,7 +136,9 @@
   function picks(d, i) {
     const known = state.known || [];
     const q = norm(d.find);
-    let list = q ? known.filter((k) => [k.name, ...(k.aliases || [])].some((n) => norm(n).includes(q))) : known.filter((k) => (d.suggest || []).includes(k.id));
+    const words = q.replace(/-/g, " ").split(" ").filter(Boolean);  // (in any order)
+    let list = q ? known.filter((k) => words.every((w) => [k.name, ...(k.aliases || [])].some((n) => norm(n).replace(/-/g, " ").includes(w))))
+      : known.filter((k) => (d.suggest || []).includes(k.id));
     if (d.link && !list.some((k) => k.id === d.link.id)) list = [known.find((k) => k.id === d.link.id) || d.link, ...list];
     if (!list.length) return `<span class="dim">${q ? "None of yours is called that." : "Type a name to find one of yours."}</span>`;
     return list.slice(0, 6).map((k) => `<button type="button" class="pick" data-act="link" data-i="${i}" data-id="${esc(k.id)}" aria-pressed="${!!d.link && d.link.id === k.id}">
@@ -144,9 +146,13 @@
   }
   function linker(d, i) {
     if (!(state.known || []).length) return '<p class="dim">Your characters can\'t be listed: ComfyUI isn\'t running. Start it to link to one of yours.</p>';
+    const target = d.link && (state.known || []).find((k) => k.id === d.link.id);
+    const said = !d.link ? "" : target && target.tag && norm(target.tag) !== norm(d.tag)
+      ? `This post's look goes to ${esc(d.link.name)}, and ${esc(d.name)} becomes one of its names (it keeps its own tag).`
+      : `Its tag and this post's look go to ${esc(d.link.name)}; the name stays yours.`;
     return `<label class="f">Find one of yours<input type="text" data-field="find" data-i="${i}" value="${esc(d.find || "")}" placeholder="Name" spellcheck="false" autocomplete="off"></label>
       <div class="picks" data-picks="${i}" role="group" aria-label="Your characters">${picks(d, i)}</div>
-      ${d.link ? `<div class="dim">Its tag and this post's look go to ${esc(d.link.name)}; the name stays yours.</div>` : ""}`;
+      ${said ? `<div class="dim">${said}</div>` : ""}`;
   }
   function card(d, i) {
     const n = (b) => d.buckets.filter((x) => x.b === b).length;
@@ -240,11 +246,12 @@
   };
 
   // after a picture of this post is saved: the characters in it you don't have yet (background.js says which)
-  function showOffer(tags) {
+  function showOffer(tags, live) {  // (live: Model Librarian said which you have; else the page doesn't claim they aren't yours)
     offerTags = tags;
     const names = tags.map(named);
-    root.querySelector(".otext").textContent = names.length === 1 ? `Saved. ${names[0]} isn't one of your characters yet.`
-      : `Saved. ${names.length} characters in it aren't yours yet: ${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}.`;
+    const list = `${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}`;
+    root.querySelector(".otext").textContent = !live ? `Saved. Add ${names.length === 1 ? names[0] : list} to your characters?`
+      : names.length === 1 ? `Saved. ${names[0]} isn't one of your characters yet.` : `Saved. ${names.length} characters in it aren't yours yet: ${list}.`;
     offer.hidden = false;
     requestAnimationFrame(() => offer.classList.add("open"));
   }
@@ -273,14 +280,14 @@
         const k = (state.known || []).find((x) => x.id === d.suggest[0]);
         if (k) d.link = { id: k.id, name: k.name, outfits: k.outfits || [] };
       }
-      if (!d.have) d.outfitName = d.mode === "link" && d.link && d.link.outfits.length ? `post ${state.post.id}` : "default";
+      if (!d.have && !d.outfitTyped) d.outfitName = d.mode === "link" && d.link && d.link.outfits.length ? `post ${state.post.id}` : "default";
       el.focus();
       keepFocus(draw);
     }
     if (act === "link" && d) {
       const k = (state.known || []).find((x) => x.id === el.dataset.id);
       if (k) d.link = { id: k.id, name: k.name, outfits: k.outfits || [] };
-      d.outfitName = d.link && d.link.outfits.length ? `post ${state.post.id}` : "default";
+      if (!d.outfitTyped) d.outfitName = d.link && d.link.outfits.length ? `post ${state.post.id}` : "default";
       keepFocus(draw);
     }
   });
@@ -291,6 +298,7 @@
   root.addEventListener("input", (e) => {
     const el = e.target;
     if (FIELDS.has(el.dataset.field) && state && state.drafts[+el.dataset.i]) state.drafts[+el.dataset.i][el.dataset.field] = el.value;
+    if (el.dataset.field === "outfitName" && state && state.drafts[+el.dataset.i]) state.drafts[+el.dataset.i].outfitTyped = true;  // (yours: kept when the mode changes)
     if (el.dataset.field === "find" && state) {  // (only the list redrawn: the box keeps its caret)
       const box = root.querySelector(`[data-picks="${el.dataset.i}"]`);
       if (box) box.innerHTML = picks(state.drafts[+el.dataset.i], +el.dataset.i);
@@ -334,7 +342,7 @@
   // the right-click menu's "Add characters from this post" (when the page's tag list isn't one this knows)
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg?.type === "charOpen") { open(null); reply({ ok: true }); }
-    if (msg?.type === "charOffer" && Array.isArray(msg.tags) && msg.tags.length) { showOffer(msg.tags.map(String).slice(0, 12)); reply({ ok: true }); }
+    if (msg?.type === "charOffer" && Array.isArray(msg.tags) && msg.tags.length) { showOffer(msg.tags.map(String).slice(0, 12), msg.live !== false); reply({ ok: true }); }
     return false;
   });
 })();

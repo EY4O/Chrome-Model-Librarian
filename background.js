@@ -353,7 +353,7 @@ async function withCharacters(list) {
     const tags = it.characters;
     try {
       if (!where || where.page || E_SITES.includes(where.site)) throw new Error("not Danbooru");
-      if (!posts.has(where.id)) posts.set(where.id, B.fetchDanbooru(where));
+      if (!posts.has(where.id)) posts.set(where.id, B.fetchDanbooru(where, (u, o) => fetch(u, { ...o, signal: AbortSignal.timeout(8000) })));  // (never holding the save up)
       it.characters = B.noteCharacters(await posts.get(where.id));
     } catch {
       it.characters = tags.slice(0, 12).map((t) => ({ tag: t, name: B.nameFromTag(t) }));  // (Danbooru didn't answer: its name, sorted later)
@@ -361,14 +361,18 @@ async function withCharacters(list) {
   }
 }
 
-// after a save from a post: the characters in it you don't have yet, offered on the page (content/booru.js)
+// after a save from a post: the characters in it you don't have yet, offered on the page (content/booru.js). Only the
+// post in the tab's own (a related post's picture right-clicked there isn't this post); "live": Model Librarian said
+// which you have (else as last heard, and the page doesn't say they aren't yours).
 async function offerCharacters(tabId, list) {
   if (tabId == null) return;
-  const tags = [...new Set(list.flatMap((it) => (Array.isArray(it.characters) ? it.characters.map((c) => c.tag) : [])))];
+  const here = B.postOf((await chrome.tabs.get(tabId).catch(() => null))?.url || "");
+  const own = list.filter((it) => { const w = B.postOf(String(it.page || "")); return here && w && w.host === here.host && w.id === here.id; });
+  const tags = [...new Set(own.flatMap((it) => (Array.isArray(it.characters) ? it.characters.map((c) => c.tag) : [])))];
   if (!tags.length) return;
   const known = await knownCharacters().catch(() => []);
-  const missing = tags.filter((t) => !known.some((k) => B.norm(k.tag) === B.norm(t)));
-  if (missing.length) chrome.tabs.sendMessage(tabId, { type: "charOffer", tags: missing }).catch(() => {});
+  const missing = tags.filter((t) => !known.some((k) => B.hasTag(k, t)));
+  if (missing.length) chrome.tabs.sendMessage(tabId, { type: "charOffer", tags: missing, live: !!knownCharacters.live }).catch(() => {});
 }
 
 async function gallerySave(items, tabId) {
@@ -448,9 +452,10 @@ const LOOKS_KEPT = 300;  // looks remembered (each for a week)
 async function knownCharacters() {
   const r = await withComfy((base) => comfy.api(base, "/ext/characters", { timeout: 5000 }));
   let { charsKnown, charsLeft } = await chrome.storage.local.get({ charsKnown: [], charsLeft: [] });
+  knownCharacters.live = !!(r && Array.isArray(r.characters));
   if (r && Array.isArray(r.characters)) {
     charsKnown = r.characters.map((c) => ({ id: c.id, tag: c.tag, name: c.name, aliases: c.aliases || [], series: c.series || "", outfits: c.outfits || [] }));
-    charsLeft = charsLeft.filter((x) => !charsKnown.some((k) => B.norm(k.tag) === B.norm(x.tag)));  // (the Gallery has filed it)
+    charsLeft = charsLeft.filter((x) => !charsKnown.some((k) => B.hasTag(k, x.tag)));  // (the Gallery has filed it)
     await chrome.storage.local.set({ charsKnown, charsLeft });
   }
   return [...charsKnown, ...charsLeft];
@@ -465,7 +470,8 @@ async function charDraft(msg) {
     const { looks: cache } = await chrome.storage.local.get({ looks: {} });
     for (const [k, v] of Object.entries(cache)) if (!v || Date.now() - v.at > B.LOOK_DAYS * 864e5) delete cache[k];
     // the one clicked first, then the others, up to LOOKS_ASKED (a group post would be many slow requests)
-    const clicked = post.characters.filter((t) => msg.tag && B.norm(t) === B.norm(msg.tag));
+    const asked = Array.isArray(msg.only) && msg.only.length ? msg.only : msg.tag ? [msg.tag] : [];  // (the ones offered after a save, or the one clicked)
+    const clicked = post.characters.filter((t) => asked.some((a) => B.norm(t) === B.norm(a)));
     const order = [...clicked, ...post.characters.filter((t) => !clicked.includes(t))];
     let busy = false;
     for (const [i, t] of order.entries()) {

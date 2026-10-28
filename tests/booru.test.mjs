@@ -162,3 +162,15 @@ test("a name in either order, and linking to one of yours", async () => {
   assert.equal(n.tag, "aurelia_(lighthouse_tales)");
   assert.equal(n.name, "Aurelia");
 });
+
+test("known by an alias too, and New over one of yours by name is new", async () => {
+  const { hasTag } = await import("../lib/booru.js");
+  const k = { tag: "nova_(starfall)", aliases: ["vale lumen"] };
+  assert.ok(hasTag(k, "vale_lumen") && hasTag(k, "nova (starfall)") && !hasTag(k, "aurelia") && !hasTag({ tag: "" }, ""));
+  const post = { ...POST, characters: ["vale lumen"] };
+  const [d] = draftsFor(post, {}, [k], null);
+  assert.ok(d.have, "linked before to one with a tag of its own: you have it");
+  const [n] = draftsFor(post, {}, [{ id: "chr_bbbb0001", tag: "", name: "Lumen Vale", outfits: [] }], null);
+  assert.equal(importOf({ ...n, mode: "outfit" }, post).mode, "new", "New picked over the suggestion");
+  assert.equal(importOf(n, post).mode, "link");
+});
