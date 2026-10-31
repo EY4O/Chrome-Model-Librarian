@@ -21,7 +21,7 @@ A Chrome and Edge extension for people who use [Model Librarian](https://github.
 - ⬇️ **One click per file** — on CivitAI model pages (every version and file: full, pruned, fp16, a bundled VAE), HuggingFace file pages and CivArchive pages (live copies of models removed from CivitAI).
 - ★ **Best file for your PC** — rates every file against your GPU, its VRAM (keeping room for the text encoder) and the formats your ComfyUI runs at full speed (FP8, NVFP4, INT8/INT4, GGUF), and says why the others are slower.
 - 🧩 **Everything it needs** — a diffusion model's text encoder and VAE, from ComfyUI's own workflow templates (official links): marked when you have them, fetched with the model if you like.
-- 🖼️ **Every model an image used** — on a CivitAI image or post, the checkpoint and every LoRA it used, in one click; saved as a recipe in Model Librarian.
+- 🖼️ **Every model an image used** — on a CivitAI image or post, the checkpoint and every LoRA it used, in one click; saved as a recipe in Model Librarian. ComfyUI not running? **Save for the Gallery** leaves it for Model Librarian Gallery to save instead.
 - ✅ **Knows what you have** — **✓ Have** and **↑ Get update** badges on CivitAI's model cards (one click gets the newer version), **✓ In your library** in the panel (by version, SHA256 or file name), and nothing downloaded twice. Files land in the right ComfyUI folder, sorted by base model.
 - 🖱️ **Right-click any model link** — **Download with Model Librarian** on a CivitAI model link queues its best file for your PC, without opening the page.
 - ⏳ **Queue while ComfyUI is closed** — clicks wait in the extension and start when ComfyUI is reachable; the popup shows progress, with **Cancel** and **Retry** that act in Model Librarian itself, and a notification says when each download is done.
@@ -116,6 +116,8 @@ Only files on that list can be downloaded this way, and nothing is suggested for
 <summary><b>🖼️ Images, posts and collections</b></summary>
 
 On a CivitAI image page, **Get its models with Model Librarian** sends the page's link to Model Librarian, which reads the image's generation data from CivitAI (the same reader as its Recipes tab) and plans every model it names: the checkpoint or diffusion model, the LoRAs (with their strengths), the VAE. Each shows **✓ In your library**, **Download**, or why it can't be downloaded (removed, early access). **Get all missing** queues the rest; **Save as recipe** keeps it in Model Librarian's Recipes. On a post, pick the image first.
+
+ComfyUI not running? On an image's page, **Save for the Gallery** (0.10.0+) leaves `civitai-<id> <time>.mlrecipe.json` (the image's link) in `Downloads\Model Librarian Gallery`. Model Librarian Gallery (1.21.0+, with **Recipes** on in its Settings) reads the image from CivitAI and saves its recipe into Model Librarian's Recipes, the same ones its Recipes tab shows, while it's open. On a post, open one of its images first.
 
 On a collection page, the panel lists the models whose cards are on the page. **Get all N missing** queues the best file of each for your PC (or the newest version's main file), and **Get all N updates** the newer version of each one you have. It runs in the background, with its progress in the panel, so you can close the panel or leave the page; it carries on if the browser restarts the extension. Only cards that are loaded count, so scroll down first for long collections.
 </details>

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { booruName, deviationName, extOf, fileNameFor, fullSize, noteFor, plain, safeName, siteOf, tweetName } from "../lib/gallery.js";
+import { RECIPE_NOTE, booruName, civitaiImage, deviationName, extOf, fileNameFor, fullSize, noteFor, plain, recipeFileName, recipeNote, safeName, siteOf, tweetName } from "../lib/gallery.js";
 
 test("the sites it knows, by their pages' addresses", () => {
   assert.equal(siteOf("https://www.pixiv.net/en/artworks/12345678"), "pixiv");
@@ -57,4 +57,20 @@ test("a booru post's characters go in the note", () => {
   const n = noteFor({ src: "https://x/y.png", tags: ["a"], characters: [{ tag: "aurelia_(lighthouse_tales)", name: "Aurelia", series: "Lighthouse Tales", appearance: ["silver hair", ""], outfit: ["white dress"] }, null, "x"] });
   assert.deepEqual(n.characters, [{ tag: "aurelia_(lighthouse_tales)", name: "Aurelia", series: "Lighthouse Tales", appearance: ["silver hair"], outfit: ["white dress"] }]);
   assert.equal(noteFor({ src: "https://x/y.png" }).characters, undefined);
+});
+
+test("a CivitAI image's recipe left for the Gallery", () => {
+  assert.equal(civitaiImage("https://www.civitai.com/images/123?postId=4"), "https://civitai.com/images/123");
+  assert.equal(civitaiImage("https://civitai.red/images/9"), "https://civitai.red/images/9");
+  assert.equal(civitaiImage("https://civitai.com/images/12a"), null);
+  assert.equal(civitaiImage("https://civitai.com/posts/7"), null, "a post is many images");
+  assert.equal(civitaiImage("https://civitai.com.example.org/images/1"), null);
+  assert.equal(civitaiImage("http://civitai.com/images/1"), null);
+  assert.equal(recipeFileName("https://civitai.com/images/55", 1700000000000), `civitai-55 1700000000000${RECIPE_NOTE}`);
+  const n = recipeNote("https://civitai.com/images/5", "https://civitai.com/posts/7");
+  assert.equal(n.v, 1);
+  assert.equal(n.url, "https://civitai.com/images/5");
+  assert.equal(n.page, "https://civitai.com/posts/7");
+  assert.equal(recipeNote("https://civitai.com/images/5", "https://example.com/").page, "https://civitai.com/images/5", "only CivitAI's pages");
+  assert.equal(recipeNote("https://example.com/images/5"), null);
 });

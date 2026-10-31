@@ -173,7 +173,8 @@
   function recipeBody(body) {
     if (s.error && !s.recipe) return body.append(h("div", { class: "err" }, s.error),
       s.page.kind === "post" && s.imageUrl !== s.page.url ? h("button", { class: "dl ghost", onclick: () => loadRecipe(s.page.url) }, "Back to the post's images") : null);
-    if (!s.recipe) return body.append(h("div", { class: "dim" }, s.conn.ok ? "Reading the image's generation data…" : (s.conn.error || "ComfyUI isn't running") + ". Model Librarian reads the image when it is."));
+    if (!s.recipe && s.conn.ok) return body.append(h("div", { class: "dim" }, "Reading the image's generation data…"));
+    if (!s.recipe) return galleryBody(body);
     const r = s.recipe;
     if (r.choices) {
       return body.append(h("div", { class: "name" }, "Which image?"), h("div", { class: "dim" }, "Pick one to see the models it used."),
@@ -205,6 +206,20 @@
       s.page.kind === "post" ? h("button", { class: "dl ghost", onclick: () => loadRecipe(s.page.url) }, "Other images") : null));
     if (s.error) body.append(h("div", { class: "err" }, s.error));
     if (!s.conn.ok) body.append(h("div", { class: "dim" }, "Downloads wait in the extension and start when ComfyUI is running."));
+  }
+
+  // ComfyUI isn't running: Model Librarian reads the image when it is, or Model Librarian Gallery saves its recipe
+  // (into the same Recipes) from a note left in Downloads
+  function galleryBody(body) {
+    const off = (s.conn.error || "ComfyUI isn't running") + ". Model Librarian reads the image when it is";
+    if (s.page.kind !== "image") return body.append(h("div", { class: "dim" }, `${off}, or open one of the post's images to save its recipe for Model Librarian Gallery.`));
+    body.append(h("div", { class: "dim" }, `${off}, or Model Librarian Gallery can save its recipe now (with Recipes on in its Settings).`),
+      h("div", { class: "acts" }, h("button", { class: "dl ghost", disabled: s.leftForGallery === s.page.url, onclick: async () => {
+        const x = await send({ type: "galleryRecipe", url: s.page.url, page: location.href });
+        if (x && x.error) s.galleryError = x.error; else { s.galleryError = null; s.leftForGallery = s.page.url; }
+        render();
+      } }, s.leftForGallery === s.page.url ? "✓ Saved for the Gallery" : "Save for the Gallery")));
+    if (s.galleryError) body.append(h("div", { class: "err" }, s.galleryError));
   }
 
   async function loadModel() {

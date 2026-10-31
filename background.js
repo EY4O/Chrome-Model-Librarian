@@ -6,7 +6,7 @@ import * as comfy from "./lib/comfy.js";
 import * as Q from "./lib/queue.js";
 import { fetchModel, normalizeModel } from "./lib/civitai.js";
 import { assess, recommend, gpuName, needsTextEncoder, textEncoderOf } from "./lib/fit.js";
-import { FOLDER, NOTE, fileNameFor, fullSize, noteFor } from "./lib/gallery.js";
+import { FOLDER, NOTE, fileNameFor, fullSize, noteFor, recipeFileName, recipeNote } from "./lib/gallery.js";
 import * as B from "./lib/booru.js";
 
 const RULE_ID = 1;
@@ -517,6 +517,24 @@ async function leaveForGallery(character, picture) {
   await chrome.storage.local.set({ charsLeft: [{ tag: character.tag, name: character.name, outfits }, ...charsLeft].slice(0, 200) });
 }
 
+// a CivitAI image's recipe, left for the Gallery when ComfyUI isn't running: the Gallery reads it from CivitAI
+async function recipeForGallery(msg) {
+  const note = recipeNote(msg.url, msg.page);
+  if (!note) return { error: "Only a CivitAI image can be left for the Gallery" };
+  await hush(true);
+  try {
+    const id = await chrome.downloads.download({ url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(note))}`,
+      filename: `${FOLDER}/${recipeFileName(note.url)}`, conflictAction: "uniquify", saveAs: false });
+    await downloaded(id);
+    chrome.downloads.erase({ id }).catch(() => {});  // (out of Chrome's list: it's the Gallery's now)
+  } catch (e) {
+    return { error: `Couldn't leave it for the Gallery: ${e.message}` };
+  } finally {
+    await hush(false);
+  }
+  return { ok: true };
+}
+
 async function charSave(msg) {
   const post = msg.post || {};
   const where = B.postOf(String(post.url || ""));
@@ -564,6 +582,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       case "companions": return companions(msg.baseModel, msg.fileName);
       case "recipe": return withComfy((base) => comfy.api(base, "/recipe/analyze", { method: "POST", body: { url: msg.url }, timeout: 60000 }));
       case "saveRecipe": return withComfy((base) => comfy.api(base, "/recipes", { method: "POST", body: { recipe: msg.recipe, thumb: msg.thumb } }));
+      case "galleryRecipe": return recipeForGallery(msg);
       case "promptoStatus": return withComfy(async (base) => {
         const st = await comfy.api(base, "/prompto/status", { raw: true }).catch(() => null);
         return { recipe: !!(st && Array.isArray(st.capture_kinds) && st.capture_kinds.includes("recipe")) };
